@@ -45,7 +45,7 @@ namespace InfantPostureApp.Editor
             canvasObj.AddComponent<GraphicRaycaster>();
 
             // EventSystemの追加（もし無ければ）
-            if (Object.FindObjectOfType<EventSystem>() == null)
+            if (Object.FindFirstObjectByType<EventSystem>() == null)
             {
                 GameObject eventSystem = new GameObject("EventSystem");
                 eventSystem.AddComponent<EventSystem>();
@@ -125,7 +125,7 @@ namespace InfantPostureApp.Editor
             txt.text = label;
             txt.color = Color.black;
             txt.alignment = TextAnchor.MiddleCenter;
-            txt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
             return btn;
         }
@@ -143,7 +143,7 @@ namespace InfantPostureApp.Editor
             Text txt = obj.AddComponent<Text>();
             txt.text = label;
             txt.color = Color.white;
-            txt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             
             return txt;
         }

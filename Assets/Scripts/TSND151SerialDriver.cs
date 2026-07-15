@@ -69,6 +69,8 @@ namespace InfantPostureApp
                 _serialPort = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One);
                 _serialPort.ReadTimeout = 100;
                 _serialPort.WriteTimeout = 100;
+                _serialPort.DtrEnable = true; // Mac SPP通信の安定化
+                _serialPort.RtsEnable = true;
                 _serialPort.Open();
 
                 _isRunning = true;
@@ -128,9 +130,11 @@ namespace InfantPostureApp
             {
                 try
                 {
-                    if (_serialPort.BytesToRead > 0)
+                    // Mac/Mono環境では BytesToRead が常に0を返すバグがあるため、
+                    // 事前チェックを外して直接 Read でブロックさせ、タイムアウトで抜ける
+                    int bytesRead = _serialPort.Read(readBuf, 0, readBuf.Length);
+                    if (bytesRead > 0)
                     {
-                        int bytesRead = _serialPort.Read(readBuf, 0, readBuf.Length);
                         ProcessBytes(readBuf, bytesRead);
                     }
                 }

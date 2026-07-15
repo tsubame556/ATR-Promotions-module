@@ -80,6 +80,9 @@ namespace InfantPostureApp
                 _serialPort.RtsEnable = true;
                 _serialPort.Open();
 
+                // MacのBluetooth SPPはポートが開いてから安定するまで時間がかかるため、直後に送信するとパケットが破棄される問題を防ぐ
+                System.Threading.Thread.Sleep(1000);
+
                 _isRunning = true;
                 ConnectionStatus = "Connected";
                 
@@ -88,19 +91,19 @@ namespace InfantPostureApp
                 // 1. 時刻設定 (0x11) - TSND仕様上必須になることがあるためダミー時刻を送信
                 byte[] timeParams = new byte[] { 26, 7, 15, 12, 0, 0, 0, 0 }; // 2026/07/15 12:00
                 SendCommand(0x11, timeParams);
-                System.Threading.Thread.Sleep(50);
+                System.Threading.Thread.Sleep(200);
 
                 // 2. 加速度・角速度設定 (0x16)
                 // [計測周期(10ms), 送信回数(1=毎回送信), 記録回数(0=記録なし)]
                 byte[] agsParams = new byte[] { 10, 1, 0 };
                 SendCommand(0x16, agsParams);
-                System.Threading.Thread.Sleep(50);
+                System.Threading.Thread.Sleep(200);
 
                 // 3. クォータニオン設定 (0x55)
                 // [計測周期(10ms), 送信回数(1=毎回送信), 記録回数(0=記録なし)]
                 byte[] quatParams = new byte[] { 10, 1, 0 };
                 SendCommand(0x55, quatParams);
-                System.Threading.Thread.Sleep(50);
+                System.Threading.Thread.Sleep(200);
 
                 // 4. TSND151 計測開始コマンド (0x13) + 相対時間での開始時刻(1秒後)と終了時刻(フリーラン)を指定する14バイトのパラメータ
                 byte[] startParams = new byte[] {

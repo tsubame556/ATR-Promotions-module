@@ -22,8 +22,9 @@ namespace InfantPostureApp
     /// </summary>
     public class TSND151SerialDriver : MonoBehaviour
     {
+        [Header("Serial Settings")]
         public int sensorId;
-        public string portName = "/dev/tty.TSND151-XXXX"; // MacのBluetooth COMポート
+        public string portName = "/dev/cu.TSND151-XXXX"; // MacのBluetooth COMポート
         public int baudRate = 115200;
 
         private SerialPort _serialPort;

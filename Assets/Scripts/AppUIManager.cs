@@ -136,6 +136,11 @@ namespace InfantPostureApp
                             Debug.Log($"[UIManager] Sensor {i + 1} port is empty. Skipping.");
                             continue;
                         }
+                        // MacではBluetooth SPPに /dev/tty.* を使うとOS側でデッドロックやゾンビ化が発生するため、 /dev/cu.* (Call-Up)へ変換する
+                        if (inputText.StartsWith("/dev/tty."))
+                        {
+                            inputText = inputText.Replace("/dev/tty.", "/dev/cu.");
+                        }
                         targetPort = inputText;
                     }
                     driver.Connect(targetPort);

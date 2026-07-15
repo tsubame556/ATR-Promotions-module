@@ -127,8 +127,6 @@ namespace InfantPostureApp
                 _readThread.Start();
 
                 Debug.Log($"[Sensor {sensorId}] Connected to {portName}");
-                // 実際の計測開始コマンドバイナリを送信 (0x13 = Start Measurement)
-                SendCommand(0x13);
             }
             catch (Exception e)
             {

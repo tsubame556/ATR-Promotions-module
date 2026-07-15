@@ -13,13 +13,15 @@ namespace InfantPostureApp
     {
         public static TSND151UdpManager Instance { get; private set; }
 
-        public string pythonPath = "python3"; // Mac標準
         public int udpPort = 5000;
 
         private Process _pythonProcess;
         private UdpClient _udpClient;
         private Thread _receiveThread;
         private bool _isRunning = false;
+
+        // パケット受信カウンタ（デバッグ用）
+        private int _packetCount = 0;
 
         private void Awake()
         {
@@ -33,24 +35,34 @@ namespace InfantPostureApp
             }
         }
 
-        public void StartBridge(List<string> ports)
+        /// <summary>
+        /// Pythonブリッジを起動し、UDP受信を開始する
+        /// sensorMappings: (sensorId, portName) のリスト
+        /// </summary>
+        public void StartBridge(List<(int sensorId, string port)> sensorMappings)
         {
             if (_isRunning) StopBridge();
 
-            if (ports == null || ports.Count == 0) return;
+            if (sensorMappings == null || sensorMappings.Count == 0) return;
 
-            string portArgs = string.Join(" ", ports);
+            // sensorId:port 形式の引数を構築
+            List<string> sensorArgs = new List<string>();
+            foreach (var (sensorId, port) in sensorMappings)
+            {
+                sensorArgs.Add($"{sensorId}:{port}");
+            }
+            string sensorArgsStr = string.Join(" ", sensorArgs);
+            
             string scriptPath = Application.dataPath + "/Python/tsnd_bridge.py";
             string venvPythonPath = Application.dataPath + "/Python/venv/bin/python";
             
             try
             {
-                // Macのpython3で実行 (venv内のPythonを指定してpyserialを使えるようにする)
                 ProcessStartInfo psi = new ProcessStartInfo();
                 psi.FileName = venvPythonPath;
-                psi.Arguments = $"\"{scriptPath}\" --ports {portArgs}";
+                psi.Arguments = $"\"{scriptPath}\" --sensors {sensorArgsStr}";
                 psi.UseShellExecute = false;
-                psi.RedirectStandardInput = true; // 標準入力をリダイレクトして、終了時にパイプを閉じてPythonを自動終了させる
+                psi.RedirectStandardInput = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
                 psi.CreateNoWindow = true;
@@ -58,18 +70,27 @@ namespace InfantPostureApp
                 _pythonProcess = new Process();
                 _pythonProcess.StartInfo = psi;
                 
-                // ログの非同期出力
-                _pythonProcess.OutputDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.Log(e.Data); };
-                _pythonProcess.ErrorDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.LogError(e.Data); };
+                // Pythonからのログ出力をUnityコンソールに表示
+                _pythonProcess.OutputDataReceived += (sender, e) => 
+                { 
+                    if (!string.IsNullOrEmpty(e.Data)) 
+                        Debug.Log($"[Python] {e.Data}"); 
+                };
+                _pythonProcess.ErrorDataReceived += (sender, e) => 
+                { 
+                    if (!string.IsNullOrEmpty(e.Data)) 
+                        Debug.Log($"[Python] {e.Data}"); // stderrもLogとして表示（エラーではなくログとして扱う）
+                };
                 
                 _pythonProcess.Start();
                 _pythonProcess.BeginOutputReadLine();
                 _pythonProcess.BeginErrorReadLine();
 
-                Debug.Log($"[UDPManager] Started Python bridge: {pythonPath} {psi.Arguments}");
+                Debug.Log($"[UDPManager] Python bridge started: {psi.FileName} {psi.Arguments}");
 
-                // UDP受信の開始
+                // UDP受信開始
                 _isRunning = true;
+                _packetCount = 0;
                 _udpClient = new UdpClient(udpPort);
                 _receiveThread = new Thread(ReceiveLoop);
                 _receiveThread.IsBackground = true;
@@ -93,16 +114,15 @@ namespace InfantPostureApp
 
             if (_receiveThread != null && _receiveThread.IsAlive)
             {
-                _receiveThread.Join(200);
+                _receiveThread.Join(500);
             }
 
             if (_pythonProcess != null && !_pythonProcess.HasExited)
             {
                 try
                 {
-                    // 標準入力を閉じることで、Pythonスクリプト側がEOFを検知して安全に終了処理を行う
                     _pythonProcess.StandardInput.Close();
-                    _pythonProcess.WaitForExit(1000);
+                    _pythonProcess.WaitForExit(2000);
                     if (!_pythonProcess.HasExited)
                     {
                         _pythonProcess.Kill();
@@ -111,7 +131,7 @@ namespace InfantPostureApp
                 catch { }
                 _pythonProcess.Dispose();
                 _pythonProcess = null;
-                Debug.Log("[UDPManager] Stopped Python bridge.");
+                Debug.Log("[UDPManager] Python bridge stopped.");
             }
         }
 
@@ -123,63 +143,77 @@ namespace InfantPostureApp
                 try
                 {
                     byte[] data = _udpClient.Receive(ref remoteEndPoint);
-                    if (data.Length > 1)
+                    if (data.Length >= 31)  // 1(sensorId) + 30(params)
                     {
                         int sensorId = data[0];
-                        // data[1..] is the packet starting with 0x9A
-                        byte[] packet = new byte[data.Length - 1];
-                        Array.Copy(data, 1, packet, 0, packet.Length);
-                        ParsePacket(sensorId, packet);
+                        byte[] params_ = new byte[30];
+                        Array.Copy(data, 1, params_, 0, 30);
+                        ParseQuaternionAccGyro(sensorId, params_);
+                        
+                        _packetCount++;
+                        if (_packetCount % 500 == 1)
+                        {
+                            Debug.Log($"[UDPManager] Total UDP packets received: {_packetCount}");
+                        }
                     }
                 }
                 catch (SocketException)
                 {
-                    // UdpClient closed
                     break;
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[UDPManager] UDP Receive error: {e.Message}");
+                    Debug.LogWarning($"[UDPManager] UDP error: {e.Message}");
                 }
             }
         }
 
-        private void ParsePacket(int sensorId, byte[] packet)
+        /// <summary>
+        /// 公式仕様に準拠した0x8Aパケット（パラメータ30バイト）の解析
+        /// オフセット:
+        ///   [0-3]   タイムスタンプ (uint32, Little-Endian, ms)
+        ///   [4-11]  クォータニオン W,X,Y,Z (int16 x4, Little-Endian)
+        ///   [12-20] 加速度 X,Y,Z (int24 x3, Little-Endian, 0.1mg単位)
+        ///   [21-29] ジャイロ X,Y,Z (int24 x3, Little-Endian, 0.01dps単位)
+        /// </summary>
+        private void ParseQuaternionAccGyro(int sensorId, byte[] p)
         {
-            if (packet.Length < 2) return;
-            byte cmd = packet[1];
+            // タイムスタンプ
+            uint timestamp_ms = BitConverter.ToUInt32(p, 0);
+            
+            // クォータニオン (int16, スケール: 値/10000 で正規化されたクォータニオン成分)
+            float qw = BitConverter.ToInt16(p, 4) / 10000f;
+            float qx = BitConverter.ToInt16(p, 6) / 10000f;
+            float qy = BitConverter.ToInt16(p, 8) / 10000f;
+            float qz = BitConverter.ToInt16(p, 10) / 10000f;
 
-            if (cmd == 0x8A && packet.Length >= 32)
+            // 加速度 (int24, 0.1mg単位 → G単位に変換: value * 0.1 / 1000 = value * 0.0001)
+            float ax = ParseInt24(p, 12) * 0.0001f;
+            float ay = ParseInt24(p, 15) * 0.0001f;
+            float az = ParseInt24(p, 18) * 0.0001f;
+
+            // ジャイロ (int24, 0.01dps単位)
+            float gx = ParseInt24(p, 21) * 0.01f;
+            float gy = ParseInt24(p, 24) * 0.01f;
+            float gz = ParseInt24(p, 27) * 0.01f;
+
+            Quaternion q = new Quaternion(qx, qy, qz, qw);
+            Vector3 acc = new Vector3(ax, ay, az);
+            Vector3 gyro = new Vector3(gx, gy, gz);
+
+            var driver = TSND151SerialDriver.GetDriver(sensorId);
+            if (driver != null)
             {
-                // クォータニオン
-                float qw = BitConverter.ToInt16(packet, 6) * 0.0001f;
-                float qx = BitConverter.ToInt16(packet, 8) * 0.0001f;
-                float qy = BitConverter.ToInt16(packet, 10) * 0.0001f;
-                float qz = BitConverter.ToInt16(packet, 12) * 0.0001f;
-
-                // 加速度
-                float ax = ParseInt24(packet, 14) * 0.0001f;
-                float ay = ParseInt24(packet, 17) * 0.0001f;
-                float az = ParseInt24(packet, 20) * 0.0001f;
-
-                Quaternion q = new Quaternion(qx, qy, qz, qw);
-                Vector3 acc = new Vector3(ax, ay, az);
-
-                // 対象のセンサドライバを探してデータを渡す
-                var driver = TSND151SerialDriver.GetDriver(sensorId);
-                if (driver != null)
+                SensorData sd = new SensorData
                 {
-                    SensorData sd = new SensorData
-                    {
-                        SensorId = sensorId,
-                        Rotation = q,
-                        Acceleration = acc,
-                        Gyroscope = Vector3.zero,
-                        BatteryLevel = driver.CurrentBatteryLevel,
-                        Timestamp = (float)DateTime.Now.TimeOfDay.TotalSeconds
-                    };
-                    driver.EnqueueData(sd);
-                }
+                    SensorId = sensorId,
+                    Rotation = q,
+                    Acceleration = acc,
+                    Gyroscope = gyro,
+                    BatteryLevel = driver.CurrentBatteryLevel,
+                    Timestamp = timestamp_ms / 1000f
+                };
+                driver.EnqueueData(sd);
             }
         }
 

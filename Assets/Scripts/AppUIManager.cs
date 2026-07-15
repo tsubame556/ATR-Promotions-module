@@ -136,7 +136,8 @@ namespace InfantPostureApp
         {
             if (postureAnalyzer == null) return;
             
-            List<string> selectedPorts = new List<string>();
+            // sensorId と port のペアを収集
+            var sensorMappings = new List<(int sensorId, string port)>();
 
             for (int i = 0; i < postureAnalyzer.SensorDrivers.Count; i++)
             {
@@ -150,7 +151,7 @@ namespace InfantPostureApp
                     string selectedText = portDropdowns[i].options[portDropdowns[i].value].text;
                     if (selectedText == "None" || string.IsNullOrEmpty(selectedText))
                     {
-                        Debug.Log($"[UIManager] Sensor {i+1} port is None. Skipping.");
+                        Debug.Log($"[UIManager] Sensor {driver.sensorId} port is None. Skipping.");
                         continue; // Noneの場合は接続をスキップ
                     }
                     targetPort = selectedText;
@@ -159,14 +160,14 @@ namespace InfantPostureApp
                 driver.Connect(targetPort);
                 if (!driver.IsDummyMode)
                 {
-                    selectedPorts.Add(targetPort);
+                    sensorMappings.Add((driver.sensorId, targetPort));
                 }
             }
             
-            // 全てのポート名が揃ったらPython UDPブリッジを起動
-            if (TSND151UdpManager.Instance != null && selectedPorts.Count > 0)
+            // Python UDPブリッジを起動（sensorIdとポートの対応を正確に伝達）
+            if (TSND151UdpManager.Instance != null && sensorMappings.Count > 0)
             {
-                TSND151UdpManager.Instance.StartBridge(selectedPorts);
+                TSND151UdpManager.Instance.StartBridge(sensorMappings);
             }
             
             ChangeState(AppState.Connected);
@@ -303,8 +304,17 @@ namespace InfantPostureApp
                 {
                     string statusTxt = $"Sensor {driver.sensorId}: {driver.ConnectionStatus} | Batt: {driver.CurrentBatteryLevel}%";
                     txtStatusBars[i].text = statusTxt;
-                    txtStatusBars[i].color = driver.IsConnected ? Color.green : colorGray;
-                    if (driver.ConnectionStatus.Contains("Error")) txtStatusBars[i].color = Color.red;
+                    
+                    // 状態に応じた色分け
+                    string status = driver.ConnectionStatus;
+                    if (status.Contains("Error") || status.Contains("Timeout"))
+                        txtStatusBars[i].color = Color.red;
+                    else if (status.Contains("Connecting"))
+                        txtStatusBars[i].color = Color.yellow;
+                    else if (driver.IsConnected)
+                        txtStatusBars[i].color = Color.green;
+                    else
+                        txtStatusBars[i].color = colorGray;
                 }
             }
         }

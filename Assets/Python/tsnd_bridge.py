@@ -1,6 +1,12 @@
+#!/usr/bin/env python3
+"""
+TSND151 UDP Bridge - eno-lab/tsnd公式ライブラリの仕様に準拠した実装
+センサとの通信はpyserialが行い、データをUDPでUnityへ転送する
+"""
 import argparse
 import socket
 import serial
+import struct
 import threading
 import time
 import sys
@@ -11,128 +17,280 @@ UDP_PORT = 5000
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 is_running = True
 
-def add_bcc(cmd):
-    bcc = 0
-    for b in cmd:
-        bcc ^= b
-    cmd.append(bcc)
-    return cmd
+# 公式仕様に準拠したレスポンスパラメータ長マップ
+RESPONSE_ARG_LEN = {
+    0x8F: 1,   # simple ACK
+    0x80: 22,  # acc_gyro_data
+    0x81: 13,  # magnetism_data
+    0x82: 9,   # atmosphere_data
+    0x83: 7,   # battery_voltage_data
+    0x84: 9,
+    0x85: 6,
+    0x86: 13,
+    0x87: 5,
+    0x88: 1,   # start_recording
+    0x89: 1,   # stop_recording
+    0x8A: 30,  # quaternion_acc_gyro_data
+    0x8B: 22,
+    0x8C: 12,
+    0x90: 30,
+    0x92: 8,   # time
+    0x93: 13,  # recording_time_settings
+    0x97: 3,
+    0x99: 3,
+    0x9B: 3,
+    0x9D: 2,
+    0x9F: 5,
+    0xA1: 3,
+    0xA3: 1,
+    0xA6: 1,
+    0xAA: 12,
+    0xAB: 9,
+    0xAD: 1,
+    0xAF: 1,
+    0xB1: 4,
+    0xB3: 1,
+    0xB6: 1,
+    0xB7: 24,
+    0xB8: 60,
+    0xB9: 1,
+    0xBA: 5,
+    0xBB: 3,
+    0xBC: 1,
+    0xBD: 12,
+    0xBE: 12,
+    0xD1: 1,
+    0xD3: 1,
+    0xD6: 3,
+    0xD8: 78,
+    0xDA: 7,
+    0xDC: 28,
+    0xDD: 1,
+}
 
-def send_cmd(ser, cmd_code, params):
-    cmd = [0x9A, cmd_code] + params
-    cmd = add_bcc(cmd)
-    ser.write(bytes(cmd))
-    # 応答ACKを受け取ってバッファをクリア
+
+def build_cmd(cmd_code, args):
+    """公式仕様に完全準拠したコマンド構築"""
+    total_cmd = [0x9A, cmd_code]
+    if isinstance(args, (list, tuple)):
+        total_cmd.extend(args)
+    else:
+        total_cmd.append(args)
+    
+    bcc = 0x00
+    for c in total_cmd:
+        bcc ^= c
+    total_cmd.append(bcc)
+    return bytes(total_cmd)
+
+
+def send_cmd(ser, cmd_code, args, label=""):
+    """コマンドを送信し、ACK応答を待つ"""
+    packet = build_cmd(cmd_code, args)
+    ser.write(packet)
+    ser.flush()
+    print(f"  [CMD] Sent 0x{cmd_code:02X} ({label}): {packet.hex()}", file=sys.stderr)
+    
+
+def wait_for_ack(ser, timeout=2.0):
+    """ACK(0x8F)応答を待つ。返却値: (成功したか, 応答バイト列)"""
+    start = time.time()
+    buf = bytearray()
+    while time.time() - start < timeout:
+        if ser.in_waiting > 0:
+            buf.extend(ser.read(ser.in_waiting))
+        # 0x9Aヘッダを探す
+        while len(buf) >= 2:
+            if buf[0] == 0x9A:
+                cmd = buf[1]
+                if cmd in RESPONSE_ARG_LEN:
+                    expected_len = 2 + RESPONSE_ARG_LEN[cmd] + 1  # header+cmd+params+bcc
+                    if len(buf) >= expected_len:
+                        pkt = buf[:expected_len]
+                        buf = buf[expected_len:]
+                        # BCC検証
+                        bcc = 0
+                        for b in pkt[:-1]:
+                            bcc ^= b
+                        if bcc == pkt[-1]:
+                            if cmd == 0x8F:
+                                result = pkt[2]  # 0x00=OK, 0x01=NG
+                                print(f"  [ACK] 0x8F result=0x{result:02X} {'OK' if result == 0 else 'NG'}", file=sys.stderr)
+                                return result == 0x00, pkt
+                            else:
+                                # ACK以外のレスポンス（0x93等）は消費して続行
+                                print(f"  [RSP] 0x{cmd:02X} received (non-ACK)", file=sys.stderr)
+                                continue
+                        else:
+                            buf = buf[1:]  # BCC不一致、1バイト進む
+                    else:
+                        break  # データ不足、待つ
+                else:
+                    buf = buf[1:]  # 未知のコマンド、1バイト進む
+            else:
+                buf = buf[1:]  # ヘッダでない、1バイト進む
+        time.sleep(0.01)
+    print(f"  [ACK] Timeout waiting for ACK", file=sys.stderr)
+    return False, None
+
+
+def init_sensor(ser):
+    """公式ライブラリの手順に準拠したセンサ初期化"""
+    # バッファをクリア
+    ser.reset_input_buffer()
     time.sleep(0.1)
+    
+    # 1. 時刻設定 (0x11)
+    send_cmd(ser, 0x11, [26, 7, 15, 12, 0, 0, 0, 0], "set_time")
+    ok, _ = wait_for_ack(ser)
+    if not ok:
+        print("  [WARN] set_time ACK failed", file=sys.stderr)
+    time.sleep(0.1)
+    
+    # 2. 加速度・角速度設定 (0x16) [周期10ms, 送信1回, 記録0回]
+    send_cmd(ser, 0x16, [10, 1, 0], "set_acc_gyro_interval")
+    ok, _ = wait_for_ack(ser)
+    if not ok:
+        print("  [WARN] set_acc_gyro_interval ACK failed", file=sys.stderr)
+    time.sleep(0.1)
+    
+    # 3. クォータニオン設定 (0x55) [周期10ms, 送信1回, 記録0回]
+    send_cmd(ser, 0x55, [10, 1, 0], "set_quaternion_interval")
+    ok, _ = wait_for_ack(ser)
+    if not ok:
+        print("  [WARN] set_quaternion_interval ACK failed", file=sys.stderr)
+    time.sleep(0.1)
+    
+    # 4. 計測開始 (0x13) - 公式仕様: 即時開始 + 永久実行
+    start_flag = [0, 0, 1, 1, 0, 0, 0,   # 即時開始 (秒=0で即時)
+                  0, 0, 1, 1, 0, 0, 0]    # 永久実行
+    send_cmd(ser, 0x13, start_flag, "start_recording")
+    # 0x13は0x93(recording_time_settings)と0x88(start_recording)を返す
+    # これらを消費する
+    time.sleep(0.5)
+    if ser.in_waiting > 0:
+        resp = ser.read(ser.in_waiting)
+        print(f"  [RSP] start response: {resp.hex()}", file=sys.stderr)
+
+
+def stop_sensor(ser):
+    """計測停止"""
+    send_cmd(ser, 0x15, [0x00], "stop")
+    time.sleep(0.3)
     if ser.in_waiting > 0:
         ser.read(ser.in_waiting)
 
-def init_sensor(ser):
-    # Time
-    send_cmd(ser, 0x11, [26, 7, 15, 12, 0, 0, 0, 0])
-    time.sleep(0.2)
-    # AGS
-    send_cmd(ser, 0x16, [10, 1, 0])
-    time.sleep(0.2)
-    # Quat
-    send_cmd(ser, 0x55, [10, 1, 0])
-    time.sleep(0.2)
-    # Start (3秒後)
-    send_cmd(ser, 0x13, [0, 0, 1, 1, 0, 0, 3, 0, 0, 1, 1, 0, 0, 0])
-    time.sleep(0.2)
-
-def stop_sensor(ser):
-    send_cmd(ser, 0x15, [])
 
 def read_loop(ser, sensor_id):
-    buffer = bytearray()
+    """公式仕様に準拠したパケット受信ループ"""
+    buf = bytearray()
+    data_count = 0
+    
     while is_running:
         try:
             if ser.in_waiting > 0:
-                data = ser.read(ser.in_waiting)
-                buffer.extend(data)
+                new_data = ser.read(ser.in_waiting)
+                buf.extend(new_data)
+            
+            # パケット解析（公式と同じ方式：ヘッダを探し→コマンドコードで長さを確定→BCC検証）
+            while len(buf) >= 2:
+                # 0x9Aヘッダを探す
+                if buf[0] != 0x9A:
+                    buf = buf[1:]
+                    continue
                 
-                # デバッグ用に受信した生データをUnityコンソールへ出力（量が多い場合は後で消します）
-                if len(data) > 0:
-                    print(f"[Bridge-Debug] Sensor {sensor_id} RECV: {data.hex()}", file=sys.stderr)
+                cmd = buf[1]
+                if cmd not in RESPONSE_ARG_LEN:
+                    buf = buf[1:]
+                    continue
                 
-                # パケット解析
-                parse_idx = 0
-                while len(buffer) - parse_idx >= 3:
-                    if buffer[parse_idx] == 0x9A:
-                        valid_len = -1
-                        max_search = min(100, len(buffer) - parse_idx)
-                        for length in range(3, max_search + 1):
-                            bcc = 0
-                            for i in range(length - 1):
-                                bcc ^= buffer[parse_idx + i]
-                            if bcc == buffer[parse_idx + length - 1]:
-                                valid_len = length
-                                break
-                        
-                        if valid_len != -1:
-                            packet = buffer[parse_idx : parse_idx + valid_len]
-                            cmd = packet[1]
-                            
-                            # データパケット(0x8A)の場合のみUnityへ転送
-                            if cmd == 0x8A:
-                                # 先頭にsensor_id(1バイト)を付与して送信
-                                udp_payload = bytes([sensor_id]) + packet
-                                sock.sendto(udp_payload, (UDP_IP, UDP_PORT))
-                            
-                            parse_idx += valid_len
-                        else:
-                            if len(buffer) - parse_idx > 100:
-                                parse_idx += 1
-                            else:
-                                break # データ不足
-                    else:
-                        parse_idx += 1
+                expected_len = 2 + RESPONSE_ARG_LEN[cmd] + 1  # header+cmd+params+bcc
+                if len(buf) < expected_len:
+                    break  # データ不足、次の受信を待つ
                 
-                if parse_idx > 0:
-                    buffer = buffer[parse_idx:]
-            else:
-                time.sleep(0.01)
+                pkt = buf[:expected_len]
+                
+                # BCC検証
+                bcc = 0
+                for b in pkt[:-1]:
+                    bcc ^= b
+                if bcc != pkt[-1]:
+                    buf = buf[1:]  # BCC不一致、1バイト進んでリトライ
+                    continue
+                
+                # 有効なパケット
+                buf = buf[expected_len:]
+                
+                # 0x8A: クォータニオン+加速度+ジャイロ データ → UDPでUnityに転送
+                if cmd == 0x8A:
+                    params = pkt[2:-1]  # パラメータ部分（30バイト）
+                    # sensor_id(1バイト) + パラメータ全体(30バイト) をUDP送信
+                    udp_payload = bytes([sensor_id]) + params
+                    sock.sendto(udp_payload, (UDP_IP, UDP_PORT))
+                    data_count += 1
+                    if data_count % 100 == 1:
+                        print(f"[Bridge] Sensor {sensor_id}: {data_count} packets sent", file=sys.stderr)
+            
+            if ser.in_waiting == 0:
+                time.sleep(0.005)
+                
         except Exception as e:
             print(f"[Bridge] Error on sensor {sensor_id}: {e}", file=sys.stderr)
             break
 
+
 def main():
     global is_running
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ports', nargs='+', help='List of serial ports')
+    parser.add_argument('--sensors', nargs='+', 
+                        help='List of id:port pairs, e.g. "1:/dev/tty.TSND151-xxx"')
+    # 後方互換: 古い --ports 引数もサポート
+    parser.add_argument('--ports', nargs='+', help='(Legacy) List of serial ports')
     args = parser.parse_args()
 
-    if not args.ports:
-        print("[Bridge] No ports specified.", file=sys.stderr)
+    sensor_specs = []
+    if args.sensors:
+        for spec in args.sensors:
+            parts = spec.split(":", 1)
+            if len(parts) == 2:
+                sensor_specs.append((int(parts[0]), parts[1]))
+    elif args.ports:
+        for i, port in enumerate(args.ports):
+            sensor_specs.append((i + 1, port))
+    
+    if not sensor_specs:
+        print("[Bridge] No sensors specified.", file=sys.stderr)
         sys.exit(1)
 
     threads = []
     serials = []
 
-    for i, port in enumerate(args.ports):
-        sensor_id = i + 1
-        print(f"[Bridge] Connecting to Sensor {sensor_id} on {port}...")
+    for sensor_id, port in sensor_specs:
+        print(f"[Bridge] Connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
         try:
-            ser = serial.Serial(port, 115200, timeout=0.1)
-            ser.dtr = True
-            ser.rts = True
-            serials.append(ser)
-            init_sensor(ser)
-            print(f"[Bridge] Sensor {sensor_id} initialized.")
+            # 公式仕様に準拠: timeout=0.01(10ms)、DTR/RTS設定なし
+            ser = serial.Serial(port, 115200, timeout=0.01)
+            time.sleep(2)  # 公式と同じ: 接続安定のため2秒待機
+            serials.append((sensor_id, ser))
             
-            t = threading.Thread(target=read_loop, args=(ser, sensor_id))
-            t.daemon = True
+            print(f"[Bridge] Initializing Sensor {sensor_id}...", file=sys.stderr)
+            init_sensor(ser)
+            print(f"[Bridge] Sensor {sensor_id} initialized successfully.", file=sys.stderr)
+            
+            t = threading.Thread(target=read_loop, args=(ser, sensor_id), daemon=True)
             t.start()
             threads.append(t)
         except Exception as e:
-            print(f"[Bridge] Failed to connect {port}: {e}", file=sys.stderr)
+            print(f"[Bridge] FAILED to connect {port}: {e}", file=sys.stderr)
 
-    print("[Bridge] All sensors running. Waiting for stdin EOF to exit...")
-    sys.stdout.flush()
+    if not serials:
+        print("[Bridge] No sensors connected. Exiting.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[Bridge] {len(serials)} sensor(s) running. Waiting for stdin EOF...", file=sys.stderr)
+    sys.stderr.flush()
     
     try:
-        # Unity側でProcessが終了（または標準入力が閉じられた）場合、速やかに終了する
         while True:
             line = sys.stdin.readline()
             if not line:
@@ -140,16 +298,17 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    print("[Bridge] Exiting... Stopping sensors.")
+    print("[Bridge] Shutting down...", file=sys.stderr)
     is_running = False
-    for ser in serials:
+    for sensor_id, ser in serials:
         try:
             stop_sensor(ser)
-            time.sleep(0.2)
             ser.close()
+            print(f"[Bridge] Sensor {sensor_id} closed.", file=sys.stderr)
         except:
             pass
-    print("[Bridge] Exited cleanly.")
+    print("[Bridge] Exited cleanly.", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

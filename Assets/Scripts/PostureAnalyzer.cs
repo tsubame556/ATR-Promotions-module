@@ -48,6 +48,27 @@ namespace InfantPostureApp
         // データ記録用に生のSensorDataも保持
         public Dictionary<int, SensorData> LatestSensorData { get; private set; } = new Dictionary<int, SensorData>();
 
+        private void Awake()
+        {
+            // ユーザーがインスペクタ上でIDの設定を忘れた場合の自動修正（フォールバック）
+            if (ActivePairs.Count == 0)
+            {
+                ActivePairs.Add(new SensorPair { PairName = "AutoPair(1->2)", ParentSensorId = 1, ChildSensorId = 2 });
+            }
+            else
+            {
+                foreach (var pair in ActivePairs)
+                {
+                    // もしインスペクタで文字列だけ入力してIDが0のままなら、1と2に自動修正する
+                    if (pair.ParentSensorId == 0 && pair.ChildSensorId == 0)
+                    {
+                        pair.ParentSensorId = 1;
+                        pair.ChildSensorId = 2;
+                    }
+                }
+            }
+        }
+
         public void AddPair(string name, int parentId, int childId)
         {
             var pair = new SensorPair { PairName = name, ParentSensorId = parentId, ChildSensorId = childId };

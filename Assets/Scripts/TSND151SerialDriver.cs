@@ -145,37 +145,39 @@ namespace InfantPostureApp
         {
             _isRunning = false;
 
-            if (_readThread != null && _readThread.IsAlive)
-            {
-                _readThread.Join(500); // スレッド終了を待つ
-            }
-
             if (_serialPort != null && _serialPort.IsOpen)
             {
                 try 
                 {
                     // 実際の計測停止コマンドバイナリを送信 (0x15 = Stop Measurement)
                     SendCommand(0x15);
-                    // Mac OSのバッファからパケットが確実に送信されるのを待つ
-                    System.Threading.Thread.Sleep(100);
+                    // ごく僅かな待機のみにして、UnityのOnDestroy実行時間制限を突破しないようにする
+                    System.Threading.Thread.Sleep(10);
 
-                    // 未送信・未受信のバッファを破棄（OSがポートを握り続けるのを防ぐ）
+                    // 未送信・未受信のバッファを破棄
                     _serialPort.DiscardInBuffer();
                     _serialPort.DiscardOutBuffer();
                     
-                    // Bluetooth/シリアル通信のハードウェア的な切断をOSに要求する
                     _serialPort.DtrEnable = false;
                     _serialPort.RtsEnable = false;
-                    System.Threading.Thread.Sleep(50);
                 } 
                 catch { }
 
                 try 
                 {
+                    // Mac/Mono環境特有のバグ回避：SerialPort.Close()の前にBaseStream.Close()を呼ぶと確実
+                    if (_serialPort.BaseStream != null) _serialPort.BaseStream.Close();
+                    
                     _serialPort.Close();
-                    _serialPort.Dispose(); // アンマネージドリソースの解放を明示
+                    _serialPort.Dispose(); 
                 }
                 catch { }
+            }
+
+            if (_readThread != null && _readThread.IsAlive)
+            {
+                // 最大100msだけ待つ（TimeoutExceptionで抜けるはず）
+                _readThread.Join(100); 
             }
 
             _serialPort = null;

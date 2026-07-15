@@ -123,7 +123,7 @@ namespace InfantPostureApp.Editor
             bgImg.color = colorBg;
 
             GameObject mainContainer = new GameObject("MainContainer");
-            mainContainer.transform.SetParent(canvasObj.transform);
+            mainContainer.transform.SetParent(canvasObj.transform, false);
             RectTransform mainRect = mainContainer.AddComponent<RectTransform>();
             mainRect.anchorMin = Vector2.zero; mainRect.anchorMax = Vector2.one;
             mainRect.offsetMin = new Vector2(0, 40); mainRect.offsetMax = Vector2.zero;
@@ -134,37 +134,28 @@ namespace InfantPostureApp.Editor
             mainLayout.childControlWidth = true;
             mainLayout.childControlHeight = true;
 
-            // --- Left Sidebar ---
+            // --- Left Sidebar (Operations) ---
             GameObject sidebar = new GameObject("Sidebar");
-            sidebar.transform.SetParent(mainContainer.transform);
+            sidebar.transform.SetParent(mainContainer.transform, false);
             var sidebarLayout = sidebar.AddComponent<VerticalLayoutGroup>();
             sidebarLayout.spacing = 20;
             sidebarLayout.childControlWidth = true;
             sidebarLayout.childControlHeight = true;
             sidebarLayout.childForceExpandHeight = false;
             var sidebarElement = sidebar.AddComponent<LayoutElement>();
-            sidebarElement.minWidth = 350;
-            sidebarElement.preferredWidth = 350;
+            sidebarElement.minWidth = 300;
+            sidebarElement.preferredWidth = 300;
             sidebarElement.flexibleWidth = 0;
 
             var connCard = CreateCard(sidebar.transform, "ConnectionCard");
             CreateLabel(connCard.transform, "CONNECTION");
 
-            uiManager.portInputs = new InputField[5];
-            
-            // Macのターミナルから検出できたポート名を配列にしておく（1台見つかりました）
-            string[] detectedPorts = new string[] {
-                "/dev/tty.TSND151-AP09182352",
-                "",
-                "",
-                "",
-                ""
-            };
+            uiManager.portDropdowns = new Dropdown[5];
 
             for (int i = 0; i < 5; i++)
             {
                 GameObject row = new GameObject("PortRow" + (i + 1));
-                row.transform.SetParent(connCard.transform);
+                row.transform.SetParent(connCard.transform, false);
                 var rowLayout = row.AddComponent<HorizontalLayoutGroup>();
                 rowLayout.spacing = 10;
                 rowLayout.childAlignment = TextAnchor.MiddleCenter;
@@ -183,12 +174,10 @@ namespace InfantPostureApp.Editor
                 lblElement.minWidth = 60;
                 lblElement.preferredWidth = 60;
 
-                uiManager.portInputs[i] = CreateInputField(row.transform, "Input" + (i + 1), "/dev/tty.TSND151-...");
-                if (!string.IsNullOrEmpty(detectedPorts[i])) {
-                    uiManager.portInputs[i].text = detectedPorts[i];
-                }
+                uiManager.portDropdowns[i] = CreateDropdownList(row.transform, "Dropdown" + (i + 1));
             }
 
+            uiManager.btnRefreshPorts = CreateButton(connCard.transform, "Refresh Ports", colorGrayBtn, colorTextPrimary);
             uiManager.btnConnectAll = CreateButton(connCard.transform, "Connect All Sensors", colorBlue, colorTextPrimary);
             uiManager.btnDisconnect = CreateButton(connCard.transform, "Disconnect", colorGrayBtn, colorTextPrimary);
 
@@ -198,17 +187,9 @@ namespace InfantPostureApp.Editor
             uiManager.btnStopRecord = CreateButton(recCard.transform, "Stop Record", colorGrayBtn, colorTextPrimary);
             uiManager.btnExportCSV = CreateButton(recCard.transform, "Export to CSV", colorGrayBtn, colorTextPrimary);
 
-            var dataCard = CreateCard(sidebar.transform, "DataCard");
-            var dataCardLayout = dataCard.GetComponent<LayoutElement>();
-            dataCardLayout.flexibleHeight = 1; // 縦の余白をすべて埋めるように拡張
-            dataCardLayout.minHeight = 150;    // 最低限の高さを確保
-
-            CreateLabel(dataCard.transform, "REALTIME DATA");
-            uiManager.txtTableData = CreateText(dataCard.transform, "Waiting for data...", colorTextPrimary, 14);
-
-            // --- Right Content ---
+            // --- Right Content (Data View) ---
             GameObject rightContent = new GameObject("RightContent");
-            rightContent.transform.SetParent(mainContainer.transform);
+            rightContent.transform.SetParent(mainContainer.transform, false);
             var rightElement = rightContent.AddComponent<LayoutElement>();
             rightElement.flexibleWidth = 1;
             var rightLayout = rightContent.AddComponent<VerticalLayoutGroup>();
@@ -216,30 +197,51 @@ namespace InfantPostureApp.Editor
             rightLayout.childControlWidth = true;
             rightLayout.childControlHeight = true;
 
-            // 3D Avatar Area (RenderTextureを映すカード)
-            GameObject avatarCard = CreateCard(rightContent.transform, "AvatarCard");
-            avatarCard.AddComponent<LayoutElement>().flexibleHeight = 2; // グラフより広く
+            // Top Area (Avatar + Table)
+            GameObject topArea = new GameObject("TopDataArea");
+            topArea.transform.SetParent(rightContent.transform, false);
+            var topLayout = topArea.AddComponent<HorizontalLayoutGroup>();
+            topLayout.spacing = 20;
+            topLayout.childControlWidth = true;
+            topLayout.childControlHeight = true;
+            var topElement = topArea.AddComponent<LayoutElement>();
+            topElement.flexibleHeight = 1.5f;
+
+            // 3D Avatar Area
+            GameObject avatarCard = CreateCard(topArea.transform, "AvatarCard");
+            var avatarElement = avatarCard.GetComponent<LayoutElement>();
+            avatarElement.flexibleWidth = 1.5f;
+            avatarElement.flexibleHeight = 1;
             
-            // 丸角の枠で映像を切り抜く（Mask）
             Mask avatarMask = avatarCard.AddComponent<Mask>();
             avatarMask.showMaskGraphic = true;
 
             CreateLabel(avatarCard.transform, "3D AVATAR (REALTIME POSTURE)");
 
             GameObject rtObj = new GameObject("AvatarRenderTextureDisplay");
-            rtObj.transform.SetParent(avatarCard.transform);
+            rtObj.transform.SetParent(avatarCard.transform, false);
             RawImage rtImg = rtObj.AddComponent<RawImage>();
-            rtImg.texture = rt; // カメラ映像を投影
+            rtImg.texture = rt; 
             rtObj.AddComponent<LayoutElement>().flexibleHeight = 1;
+
+            // Realtime Data Table Area
+            var dataCard = CreateCard(topArea.transform, "DataCard");
+            var dataCardLayout = dataCard.GetComponent<LayoutElement>();
+            dataCardLayout.flexibleWidth = 1;
+            dataCardLayout.flexibleHeight = 1;
+            CreateLabel(dataCard.transform, "REALTIME DATA");
+            uiManager.txtTableData = CreateText(dataCard.transform, "Waiting for data...", colorTextPrimary, 14);
 
             // Graph Area
             GameObject graphCard = CreateCard(rightContent.transform, "GraphCard");
-            graphCard.AddComponent<LayoutElement>().flexibleHeight = 1;
+            var graphElement = graphCard.GetComponent<LayoutElement>();
+            graphElement.flexibleWidth = 1;
+            graphElement.flexibleHeight = 1;
 
             CreateLabel(graphCard.transform, "EULER ANGLES GRAPH (Roll=Red, Pitch=Green, Yaw=Cyan)");
 
             GameObject graphObj = new GameObject("GraphRawImage");
-            graphObj.transform.SetParent(graphCard.transform);
+            graphObj.transform.SetParent(graphCard.transform, false);
             graphObj.AddComponent<RectTransform>();
             var graphController = graphObj.AddComponent<RealtimeGraphController>();
             graphController.BackgroundColor = new Color(0.05f, 0.05f, 0.05f, 1f); 
@@ -247,7 +249,7 @@ namespace InfantPostureApp.Editor
 
             // --- Bottom Status Bar ---
             GameObject statusBar = new GameObject("StatusBar");
-            statusBar.transform.SetParent(canvasObj.transform);
+            statusBar.transform.SetParent(canvasObj.transform, false);
             RectTransform statusRect = statusBar.AddComponent<RectTransform>();
             statusRect.anchorMin = Vector2.zero; statusRect.anchorMax = new Vector2(1, 0);
             statusRect.pivot = new Vector2(0.5f, 0); statusRect.sizeDelta = new Vector2(0, 40);
@@ -269,7 +271,7 @@ namespace InfantPostureApp.Editor
 
             // --- Toast Notification Panel ---
             GameObject toastObj = new GameObject("ToastPanel");
-            toastObj.transform.SetParent(canvasObj.transform);
+            toastObj.transform.SetParent(canvasObj.transform, false);
             RectTransform toastRect = toastObj.AddComponent<RectTransform>();
             toastRect.anchorMin = new Vector2(0.5f, 1); toastRect.anchorMax = new Vector2(0.5f, 1);
             toastRect.pivot = new Vector2(0.5f, 1); toastRect.anchoredPosition = new Vector2(0, -60);
@@ -318,24 +320,10 @@ namespace InfantPostureApp.Editor
             return null;
         }
 
-        private static Dropdown CreateDropdownList(Transform parent, string name)
-        {
-            DefaultControls.Resources uiResources = new DefaultControls.Resources();
-            // Dropdownの背景のみ丸角を使用し、他（チェックマークや矢印）は標準を使用するためnullにする
-            uiResources.standard = null;
-            uiResources.background = roundedSprite;
-            uiResources.dropdown = null;
-            uiResources.checkmark = null;
-            uiResources.mask = null;
-
-            GameObject dropdownObj = DefaultControls.CreateDropdown(uiResources);
-            return dropdownObj.GetComponent<Dropdown>();
-        }
-
         private static GameObject CreateCard(Transform parent, string name)
         {
             GameObject card = new GameObject(name);
-            card.transform.SetParent(parent);
+            card.transform.SetParent(parent, false);
             Image img = card.AddComponent<Image>();
             img.sprite = roundedSprite;
             img.type = Image.Type.Sliced;
@@ -365,7 +353,7 @@ namespace InfantPostureApp.Editor
         private static Button CreateButton(Transform parent, string label, Color bgColor, Color textColor)
         {
             GameObject btnObj = new GameObject("Btn_" + label.Replace(" ", ""));
-            btnObj.transform.SetParent(parent);
+            btnObj.transform.SetParent(parent, false);
             var element = btnObj.AddComponent<LayoutElement>();
             element.minHeight = 44;
 
@@ -386,7 +374,7 @@ namespace InfantPostureApp.Editor
         private static Text CreateText(Transform parent, string content, Color color, int fontSize, bool useFitter = true)
         {
             GameObject txtObj = new GameObject("Text");
-            txtObj.transform.SetParent(parent);
+            txtObj.transform.SetParent(parent, false);
             Text txt = txtObj.AddComponent<Text>();
             txt.text = content;
             txt.color = color;
@@ -402,37 +390,50 @@ namespace InfantPostureApp.Editor
             return txt;
         }
 
-        private static InputField CreateInputField(Transform parent, string name, string placeholderText)
+        private static Dropdown CreateDropdownList(Transform parent, string name)
         {
-            GameObject bgObj = new GameObject(name);
-            bgObj.transform.SetParent(parent);
-            var element = bgObj.AddComponent<LayoutElement>();
+            DefaultControls.Resources uiResources = new DefaultControls.Resources();
+            // Dropdownの背景のみ丸角を使用し、他（チェックマークや矢印）は標準を使用するためnullにする
+            uiResources.standard = null;
+            uiResources.background = roundedSprite;
+            uiResources.dropdown = null;
+            uiResources.checkmark = null;
+            uiResources.mask = null;
+
+            GameObject dropdownObj = DefaultControls.CreateDropdown(uiResources);
+            dropdownObj.name = name;
+            dropdownObj.transform.SetParent(parent, false);
+            var element = dropdownObj.AddComponent<LayoutElement>();
             element.minHeight = 30;
             element.preferredHeight = 30;
             element.flexibleHeight = 0;
             element.flexibleWidth = 1;
 
-            Image bg = bgObj.AddComponent<Image>();
-            bg.color = new Color(0.95f, 0.95f, 0.95f, 1f); // 視認性のための薄いグレー
+            Dropdown dropdown = dropdownObj.GetComponent<Dropdown>();
+            
+            // 全体の背景色
+            dropdown.GetComponent<Image>().color = new Color(0.95f, 0.95f, 0.95f, 1f);
+            
+            // 展開されたリストの背景色
+            var templateImg = dropdown.template.GetComponent<Image>();
+            if (templateImg != null) templateImg.color = new Color(0.9f, 0.9f, 0.9f, 1f);
 
-            InputField input = bgObj.AddComponent<InputField>();
+            // フォントの割り当て
+            Text labelTxt = dropdown.captionText;
+            if (labelTxt != null)
+            {
+                labelTxt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                labelTxt.color = Color.black;
+            }
 
-            Text txt = CreateText(bgObj.transform, "", Color.black, 14, false);
-            var txtRect = txt.GetComponent<RectTransform>();
-            txtRect.anchorMin = Vector2.zero; txtRect.anchorMax = Vector2.one;
-            txtRect.offsetMin = new Vector2(5, 0); txtRect.offsetMax = new Vector2(-5, 0);
-            txt.alignment = TextAnchor.MiddleLeft;
+            Text itemTxt = dropdown.itemText;
+            if (itemTxt != null)
+            {
+                itemTxt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                itemTxt.color = Color.black;
+            }
 
-            Text ph = CreateText(bgObj.transform, placeholderText, new Color(0.5f, 0.5f, 0.5f, 1f), 14, false);
-            var phRect = ph.GetComponent<RectTransform>();
-            phRect.anchorMin = Vector2.zero; phRect.anchorMax = Vector2.one;
-            phRect.offsetMin = new Vector2(5, 0); phRect.offsetMax = new Vector2(-5, 0);
-            ph.alignment = TextAnchor.MiddleLeft;
-
-            input.textComponent = txt;
-            input.placeholder = ph;
-
-            return input;
+            return dropdown;
         }
 
         private static Sprite CreateRoundedSprite(int radius)

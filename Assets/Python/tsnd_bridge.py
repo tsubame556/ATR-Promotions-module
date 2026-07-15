@@ -147,8 +147,9 @@ def init_sensor(ser):
         print("  [WARN] set_time ACK failed", file=sys.stderr)
     time.sleep(0.1)
     
-    # 2. 加速度・角速度設定 (0x16) [周期10ms, 送信1回, 記録0回]
-    send_cmd(ser, 0x16, [10, 1, 0], "set_acc_gyro_interval")
+    # 2. 加速度・角速度設定 (0x16) [OFFにする]
+    # 公式仕様: クォータニオン(0x55)を利用する場合は0x16と競合するため0を指定してOFFにする
+    send_cmd(ser, 0x16, [0, 0, 0], "set_acc_gyro_interval_off")
     ok, _ = wait_for_ack(ser)
     if not ok:
         print("  [WARN] set_acc_gyro_interval ACK failed", file=sys.stderr)

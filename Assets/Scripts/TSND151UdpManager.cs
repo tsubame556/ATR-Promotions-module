@@ -201,6 +201,12 @@ namespace InfantPostureApp
             Vector3 acc = new Vector3(ax, ay, az);
             Vector3 gyro = new Vector3(gx, gy, gz);
 
+            // デバッグ用: 生データをコンソールに出力（100回に1回の頻度で間引いて表示）
+            if (_packetCount % 100 == 1)
+            {
+                Debug.Log($"[RawData Sensor {sensorId}] Q({qw:F2}, {qx:F2}, {qy:F2}, {qz:F2}) | Acc({ax:F2}, {ay:F2}, {az:F2}) | Gyro({gx:F2}, {gy:F2}, {gz:F2})");
+            }
+
             var driver = TSND151SerialDriver.GetDriver(sensorId);
             if (driver != null)
             {

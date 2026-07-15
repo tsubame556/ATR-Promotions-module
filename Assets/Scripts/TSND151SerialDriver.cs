@@ -86,6 +86,11 @@ namespace InfantPostureApp
                 _isRunning = true;
                 ConnectionStatus = "Connected";
                 
+                // 通信バッファ詰まりを防ぐため、コマンド送信前に受信スレッドを開始してACKを消費させる
+                _readThread = new Thread(ReadLoop);
+                _readThread.IsBackground = true;
+                _readThread.Start();
+
                 // SensorControllerと同様に、センサへ初期化設定を送信して「Bluetooth送信」を強制的にONにする
                 
                 // 1. 時刻設定 (0x11) - TSND仕様上必須になることがあるためダミー時刻を送信
@@ -105,7 +110,7 @@ namespace InfantPostureApp
                 SendCommand(0x55, quatParams);
                 System.Threading.Thread.Sleep(200);
 
-                // 4. TSND151 計測開始コマンド (0x13) + 相対時間での開始時刻(1秒後)と終了時刻(フリーラン)を指定する14バイトのパラメータ
+                // 4. TSND151 計測開始コマンド (0x13) + 相対時間での開始時刻(3秒後)と終了時刻(フリーラン)を指定する14バイトのパラメータ
                 byte[] startParams = new byte[] {
                     0x00, // Mode: 0 (相対時間)
                     0x00, // Year
@@ -113,7 +118,7 @@ namespace InfantPostureApp
                     0x01, // Day
                     0x00, // Hour
                     0x00, // Minute
-                    0x01, // Second (1秒後に開始)
+                    0x03, // Second (3秒後に開始 - 通信遅延で過去時刻になり無視されるのを防ぐ)
                     0x00, // End Mode: 0 (相対時間)
                     0x00, // End Year
                     0x01, // End Month
@@ -123,11 +128,6 @@ namespace InfantPostureApp
                     0x00  // End Second (0でフリーラン)
                 };
                 SendCommand(0x13, startParams);
-                
-                // 受信スレッドの開始
-                _readThread = new Thread(ReadLoop);
-                _readThread.IsBackground = true;
-                _readThread.Start();
 
                 Debug.Log($"[Sensor {sensorId}] Connected to {portName}");
             }
@@ -316,39 +316,36 @@ namespace InfantPostureApp
             if (packet.Length < 2) return;
             byte cmd = packet[1];
 
-            float qw = 1.0f, qx = 0.0f, qy = 0.0f, qz = 0.0f;
-            float ax = 0.0f, ay = 0.0f, az = 0.0f;
-
             if (cmd == 0x8A && packet.Length >= 32)
             {
                 // クォータニオン (2Byte x 4) リトルエンディアン, 0.0001単位
-                qw = BitConverter.ToInt16(packet, 6) * 0.0001f;
-                qx = BitConverter.ToInt16(packet, 8) * 0.0001f;
-                qy = BitConverter.ToInt16(packet, 10) * 0.0001f;
-                qz = BitConverter.ToInt16(packet, 12) * 0.0001f;
+                float qw = BitConverter.ToInt16(packet, 6) * 0.0001f;
+                float qx = BitConverter.ToInt16(packet, 8) * 0.0001f;
+                float qy = BitConverter.ToInt16(packet, 10) * 0.0001f;
+                float qz = BitConverter.ToInt16(packet, 12) * 0.0001f;
 
                 // 加速度 (3Byte x 3) リトルエンディアン, 0.1mg 単位 (= 0.0001g)
-                ax = ParseInt24(packet, 14) * 0.0001f;
-                ay = ParseInt24(packet, 17) * 0.0001f;
-                az = ParseInt24(packet, 20) * 0.0001f;
+                float ax = ParseInt24(packet, 14) * 0.0001f;
+                float ay = ParseInt24(packet, 17) * 0.0001f;
+                float az = ParseInt24(packet, 20) * 0.0001f;
+
+                // アバター動作用のキューへ登録
+                Quaternion q = new Quaternion(qx, qy, qz, qw); // Unityは(x,y,z,w)の順
+                Vector3 acc = new Vector3(ax, ay, az);
+                Vector3 gyro = Vector3.zero; // 角速度も必要なら追加可能
+
+                SensorData sd = new SensorData
+                {
+                    SensorId = this.sensorId,
+                    Rotation = q,
+                    Acceleration = acc,
+                    Gyroscope = gyro,
+                    BatteryLevel = this.CurrentBatteryLevel,
+                    Timestamp = (float)DateTime.Now.TimeOfDay.TotalSeconds // スレッドセーフな時刻
+                };
+
+                DataQueue.Enqueue(sd);
             }
-
-            // アバター動作用のキューへ登録
-            Quaternion q = new Quaternion(qx, qy, qz, qw); // Unityは(x,y,z,w)の順
-            Vector3 acc = new Vector3(ax, ay, az);
-            Vector3 gyro = Vector3.zero; // 角速度も必要なら追加可能
-
-            SensorData sd = new SensorData
-            {
-                SensorId = this.sensorId,
-                Rotation = q,
-                Acceleration = acc,
-                Gyroscope = gyro,
-                BatteryLevel = this.CurrentBatteryLevel,
-                Timestamp = (float)DateTime.Now.TimeOfDay.TotalSeconds // スレッドセーフな時刻
-            };
-
-            DataQueue.Enqueue(sd);
         }
 
         private int ParseInt24(byte[] buf, int offset)

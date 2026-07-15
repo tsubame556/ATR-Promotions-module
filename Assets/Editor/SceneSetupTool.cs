@@ -233,12 +233,11 @@ namespace InfantPostureApp.Editor
             var toastGroup = toastObj.AddComponent<CanvasGroup>();
             toastGroup.alpha = 0f; toastGroup.blocksRaycasts = false;
 
-            Text tText = CreateText(toastObj.transform, "Notification", colorTextPrimary, 16);
+            Text tText = CreateText(toastObj.transform, "Notification", colorTextPrimary, 16, false);
             tText.alignment = TextAnchor.MiddleCenter;
             var tRect = tText.GetComponent<RectTransform>();
             tRect.anchorMin = Vector2.zero; tRect.anchorMax = Vector2.one;
             tRect.offsetMin = Vector2.zero; tRect.offsetMax = Vector2.zero;
-            Object.DestroyImmediate(tText.GetComponent<ContentSizeFitter>());
 
             uiManager.toastPanel = toastRect;
             uiManager.toastText = tText;
@@ -320,7 +319,7 @@ namespace InfantPostureApp.Editor
             return btn;
         }
 
-        private static Text CreateText(Transform parent, string content, Color color, int fontSize)
+        private static Text CreateText(Transform parent, string content, Color color, int fontSize, bool useFitter = true)
         {
             GameObject txtObj = new GameObject("Text");
             txtObj.transform.SetParent(parent);
@@ -330,8 +329,11 @@ namespace InfantPostureApp.Editor
             txt.fontSize = fontSize;
             txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             
-            var fitter = txtObj.AddComponent<ContentSizeFitter>();
-            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            if (useFitter) 
+            {
+                var fitter = txtObj.AddComponent<ContentSizeFitter>();
+                fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
             
             return txt;
         }

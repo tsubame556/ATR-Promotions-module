@@ -310,6 +310,20 @@ namespace InfantPostureApp.Editor
             return null;
         }
 
+        private static Dropdown CreateDropdownList(Transform parent, string name)
+        {
+            DefaultControls.Resources uiResources = new DefaultControls.Resources();
+            // Dropdownの背景のみ丸角を使用し、他（チェックマークや矢印）は標準を使用するためnullにする
+            uiResources.standard = null;
+            uiResources.background = roundedSprite;
+            uiResources.dropdown = null;
+            uiResources.checkmark = null;
+            uiResources.mask = null;
+
+            GameObject dropdownObj = DefaultControls.CreateDropdown(uiResources);
+            return dropdownObj.GetComponent<Dropdown>();
+        }
+
         private static GameObject CreateCard(Transform parent, string name)
         {
             GameObject card = new GameObject(name);

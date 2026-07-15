@@ -148,6 +148,16 @@ namespace InfantPostureApp.Editor
             CreateLabel(connCard.transform, "CONNECTION");
 
             uiManager.portInputs = new InputField[5];
+            
+            // Macのターミナルから検出できたポート名を配列にしておく（1台見つかりました）
+            string[] detectedPorts = new string[] {
+                "/dev/tty.TSND151-AP09182352",
+                "",
+                "",
+                "",
+                ""
+            };
+
             for (int i = 0; i < 5; i++)
             {
                 GameObject row = new GameObject("PortRow" + (i + 1));
@@ -168,6 +178,9 @@ namespace InfantPostureApp.Editor
                 lblElement.preferredWidth = 60;
 
                 uiManager.portInputs[i] = CreateInputField(row.transform, "Input" + (i + 1), "/dev/tty.TSND151-...");
+                if (!string.IsNullOrEmpty(detectedPorts[i])) {
+                    uiManager.portInputs[i].text = detectedPorts[i];
+                }
             }
 
             uiManager.btnConnectAll = CreateButton(connCard.transform, "Connect All Sensors", colorBlue, colorTextPrimary);

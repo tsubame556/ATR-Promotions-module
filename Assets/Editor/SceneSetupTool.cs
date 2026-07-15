@@ -146,6 +146,30 @@ namespace InfantPostureApp.Editor
 
             var connCard = CreateCard(sidebar.transform, "ConnectionCard");
             CreateLabel(connCard.transform, "CONNECTION");
+
+            uiManager.portInputs = new InputField[5];
+            for (int i = 0; i < 5; i++)
+            {
+                GameObject row = new GameObject("PortRow" + (i + 1));
+                row.transform.SetParent(connCard.transform);
+                var rowLayout = row.AddComponent<HorizontalLayoutGroup>();
+                rowLayout.spacing = 10;
+                rowLayout.childControlWidth = true;
+                rowLayout.childControlHeight = true;
+                rowLayout.childForceExpandHeight = false;
+
+                var element = row.AddComponent<LayoutElement>();
+                element.minHeight = 30;
+
+                Text label = CreateText(row.transform, $"Sensor {i + 1}:", colorTextSecondary, 12, false);
+                label.alignment = TextAnchor.MiddleLeft;
+                var lblElement = label.gameObject.AddComponent<LayoutElement>();
+                lblElement.minWidth = 60;
+                lblElement.preferredWidth = 60;
+
+                uiManager.portInputs[i] = CreateInputField(row.transform, "Input" + (i + 1), "/dev/tty.TSND151-...");
+            }
+
             uiManager.btnConnectAll = CreateButton(connCard.transform, "Connect All Sensors", colorBlue, colorTextPrimary);
             uiManager.btnDisconnect = CreateButton(connCard.transform, "Disconnect", colorGrayBtn, colorTextPrimary);
 
@@ -336,6 +360,36 @@ namespace InfantPostureApp.Editor
             }
             
             return txt;
+        }
+
+        private static InputField CreateInputField(Transform parent, string name, string placeholderText)
+        {
+            GameObject bgObj = new GameObject(name);
+            bgObj.transform.SetParent(parent);
+            var element = bgObj.AddComponent<LayoutElement>();
+            element.minHeight = 30;
+
+            Image bg = bgObj.AddComponent<Image>();
+            bg.color = new Color(0.95f, 0.95f, 0.95f, 1f); // 視認性のための薄いグレー
+
+            InputField input = bgObj.AddComponent<InputField>();
+
+            Text txt = CreateText(bgObj.transform, "", Color.black, 14, false);
+            var txtRect = txt.GetComponent<RectTransform>();
+            txtRect.anchorMin = Vector2.zero; txtRect.anchorMax = Vector2.one;
+            txtRect.offsetMin = new Vector2(5, 0); txtRect.offsetMax = new Vector2(-5, 0);
+            txt.alignment = TextAnchor.MiddleLeft;
+
+            Text ph = CreateText(bgObj.transform, placeholderText, new Color(0.5f, 0.5f, 0.5f, 1f), 14, false);
+            var phRect = ph.GetComponent<RectTransform>();
+            phRect.anchorMin = Vector2.zero; phRect.anchorMax = Vector2.one;
+            phRect.offsetMin = new Vector2(5, 0); phRect.offsetMax = new Vector2(-5, 0);
+            ph.alignment = TextAnchor.MiddleLeft;
+
+            input.textComponent = txt;
+            input.placeholder = ph;
+
+            return input;
         }
 
         private static Sprite CreateRoundedSprite(int radius)

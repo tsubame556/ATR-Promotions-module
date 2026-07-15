@@ -30,6 +30,9 @@ namespace InfantPostureApp
         private Thread _readThread;
         private bool _isRunning = false;
 
+        private byte[] _rxBuffer = new byte[4096];
+        private int _rxBufferLength = 0;
+
         // メインスレッドにデータを渡すためのスレッドセーフなキュー
         public ConcurrentQueue<SensorData> DataQueue = new ConcurrentQueue<SensorData>();
 
@@ -78,8 +81,9 @@ namespace InfantPostureApp
 
                 Debug.Log($"[Sensor {sensorId}] Connected to {portName}");
                 
-                // 計測開始コマンドの送信等が必要な場合はここに記述
-                // TSND151の場合は、BCC付きのコマンドバイナリを構築して _serialPort.Write() を実行
+                // 【要調整】実際の計測開始コマンドバイナリを送信
+                // 例: byte[] startCmd = new byte[] { 0x9A, 0x00, 0x01, 0x13, 0x88 }; // (コマンド例)
+                // _serialPort.Write(startCmd, 0, startCmd.Length);
             }
             catch (Exception e)
             {
@@ -102,7 +106,14 @@ namespace InfantPostureApp
 
             if (_serialPort != null && _serialPort.IsOpen)
             {
-                // 計測停止コマンドの送信等をここで行う
+                try 
+                {
+                    // 【要調整】実際の計測停止コマンドバイナリを送信
+                    // byte[] stopCmd = new byte[] { 0x9A, 0x00, 0x01, 0x15, 0x8A };
+                    // _serialPort.Write(stopCmd, 0, stopCmd.Length);
+                } 
+                catch { }
+
                 _serialPort.Close();
             }
 
@@ -113,7 +124,7 @@ namespace InfantPostureApp
 
         private void ReadLoop()
         {
-            byte[] buffer = new byte[1024];
+            byte[] readBuf = new byte[1024];
 
             while (_isRunning && _serialPort != null && _serialPort.IsOpen)
             {
@@ -121,14 +132,11 @@ namespace InfantPostureApp
                 {
                     if (_serialPort.BytesToRead > 0)
                     {
-                        int bytesRead = _serialPort.Read(buffer, 0, buffer.Length);
-                        ParseData(buffer, bytesRead);
+                        int bytesRead = _serialPort.Read(readBuf, 0, readBuf.Length);
+                        ProcessBytes(readBuf, bytesRead);
                     }
                 }
-                catch (TimeoutException)
-                {
-                    // タイムアウトは無視してループ継続
-                }
+                catch (TimeoutException) { } // タイムアウトは通常動作
                 catch (Exception e)
                 {
                     Debug.LogWarning($"[Sensor {sensorId}] Read Error: {e.Message}");
@@ -138,19 +146,78 @@ namespace InfantPostureApp
             }
         }
 
-        /// <summary>
-        /// 受信したバイト列からTSND151のパケットを解析し、クォータニオンや加速度を抽出する
-        /// ※以下はパースの疑似的/簡易的な実装例。実際のプロトコルに従ってBCCチェックやヘッダ解析を行うこと。
-        /// </summary>
-        private void ParseData(byte[] data, int length)
+        private void ProcessBytes(byte[] newBytes, int length)
         {
-            // TODO: 実際のTSND151のパケットフォーマット（ヘッダ、レコードタイプ、BCC等）に従いパースする
-            // 簡易的にダミーデータをキューに積む例
+            // リングバッファまたは単純なバッファに追加
+            if (_rxBufferLength + length > _rxBuffer.Length)
+            {
+                // バッファオーバーフロー対策
+                _rxBufferLength = 0;
+            }
+            Array.Copy(newBytes, 0, _rxBuffer, _rxBufferLength, length);
+            _rxBufferLength += length;
+
+            // 汎用フレーミング処理（ヘッダ探索とパケット切り出し）
+            // ※以下はお客様にてTSND151の実仕様に合わせて調整していただくための「枠組み」です。
+            int parseIndex = 0;
+            while (_rxBufferLength - parseIndex >= 3) // 最小パケット長を仮に3バイトとする
+            {
+                // 例: ヘッダが 0x9A だと仮定
+                if (_rxBuffer[parseIndex] == 0x9A)
+                {
+                    // 例: 次のバイトがペイロード長だと仮定
+                    int payloadLength = _rxBuffer[parseIndex + 1];
+                    int packetLength = payloadLength + 3; // ヘッダ(1) + 長さ(1) + ペイロード + BCC(1)と仮定
+
+                    // 異常な長さならヘッダを誤検知したとみなして進める
+                    if (packetLength < 3 || packetLength > 200) 
+                    {
+                        parseIndex++;
+                        continue;
+                    }
+
+                    if (_rxBufferLength - parseIndex >= packetLength)
+                    {
+                        // パケットが完全に到着している
+                        byte[] packet = new byte[packetLength];
+                        Array.Copy(_rxBuffer, parseIndex, packet, 0, packetLength);
+                        
+                        ParsePacket(packet);
+
+                        parseIndex += packetLength;
+                        continue;
+                    }
+                    else
+                    {
+                        // パケットの到着待ち
+                        break;
+                    }
+                }
+                else
+                {
+                    // ヘッダが見つからない場合は1バイト進める
+                    parseIndex++;
+                }
+            }
+
+            // 残りの未処理データをバッファ先頭に詰める
+            int remaining = _rxBufferLength - parseIndex;
+            if (remaining > 0 && parseIndex > 0)
+            {
+                Array.Copy(_rxBuffer, parseIndex, _rxBuffer, 0, remaining);
+            }
+            _rxBufferLength = remaining;
+        }
+
+        private void ParsePacket(byte[] packet)
+        {
+            // 【要調整】実際のTSND151パケットからクォータニオンや加速度を抽出する
+            // ここでは仮にダミー値を生成しています。お客様の方でバイトオフセットを調整してください。
+            // 例: float w = BitConverter.ToSingle(packet, 2);
             
-            // 例: byte配列からQuaternionを復元したと仮定
-            Quaternion q = new Quaternion(0, 0, 0, 1); // Parsed Quaternion
-            Vector3 acc = Vector3.zero; // Parsed Accel
-            Vector3 gyro = Vector3.zero; // Parsed Gyro
+            Quaternion q = new Quaternion(0, 0, 0, 1);
+            Vector3 acc = Vector3.zero;
+            Vector3 gyro = Vector3.zero;
 
             SensorData sd = new SensorData
             {
@@ -159,7 +226,7 @@ namespace InfantPostureApp
                 Acceleration = acc,
                 Gyroscope = gyro,
                 BatteryLevel = this.CurrentBatteryLevel,
-                Timestamp = Time.realtimeSinceStartup // UnityAPI呼び出しはスレッドセーフでないため、別スレッドではSystem.DateTime等を利用するのが望ましい
+                Timestamp = (float)DateTime.Now.TimeOfDay.TotalSeconds // スレッドセーフな時刻
             };
 
             DataQueue.Enqueue(sd);

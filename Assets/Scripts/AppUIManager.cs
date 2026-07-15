@@ -29,6 +29,7 @@ namespace InfantPostureApp
         public Button btnStartRecord;
         public Button btnStopRecord;
         public Button btnExportCSV;
+        public InputField[] portInputs;
 
         [Header("UI Displays")]
         public Text txtTableData;
@@ -121,9 +122,24 @@ namespace InfantPostureApp
         private void OnConnectAllClicked()
         {
             if (postureAnalyzer == null) return;
-            foreach (var driver in postureAnalyzer.SensorDrivers)
+            for (int i = 0; i < postureAnalyzer.SensorDrivers.Count; i++)
             {
-                if (driver != null) driver.Connect(driver.portName);
+                var driver = postureAnalyzer.SensorDrivers[i];
+                if (driver != null)
+                {
+                    string targetPort = driver.portName;
+                    if (portInputs != null && portInputs.Length > i && portInputs[i] != null)
+                    {
+                        string inputText = portInputs[i].text.Trim();
+                        if (string.IsNullOrEmpty(inputText))
+                        {
+                            Debug.Log($"[UIManager] Sensor {i + 1} port is empty. Skipping.");
+                            continue;
+                        }
+                        targetPort = inputText;
+                    }
+                    driver.Connect(targetPort);
+                }
             }
             ChangeState(AppState.Connected);
         }

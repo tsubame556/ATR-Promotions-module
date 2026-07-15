@@ -136,6 +136,10 @@ def wait_for_ack(ser, timeout=2.0):
 
 def init_sensor(ser):
     """公式ライブラリの手順に準拠したセンサ初期化"""
+    # 0. まず以前の計測が動いたままになっている場合を考慮してストップコマンドを送る
+    send_cmd(ser, 0x15, [0x00], "force_stop")
+    time.sleep(0.5)
+    
     # バッファをクリア
     ser.reset_input_buffer()
     time.sleep(0.1)

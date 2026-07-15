@@ -321,9 +321,25 @@ namespace InfantPostureApp
 
         private void UpdateGraphDisplay()
         {
-            if (graphController == null || postureAnalyzer.ActivePairs.Count == 0) return;
-            var targetPair = postureAnalyzer.ActivePairs[0];
-            graphController.UpdateGraph(targetPair.RelativeEulerAngles);
+            if (graphController == null || postureAnalyzer == null) return;
+
+            if (postureAnalyzer.ActivePairs.Count > 0)
+            {
+                var targetPair = postureAnalyzer.ActivePairs[0];
+                graphController.UpdateGraph(targetPair.RelativeEulerAngles);
+            }
+            else if (postureAnalyzer.SensorDrivers.Count > 0)
+            {
+                // ペアが未設定の場合は、接続中の最初のセンサの生オイラー角をグラフ描画のフォールバックとする
+                foreach (var driver in postureAnalyzer.SensorDrivers)
+                {
+                    if (driver != null && driver.IsConnected)
+                    {
+                        graphController.UpdateGraph(driver.Rotation.eulerAngles);
+                        break;
+                    }
+                }
+            }
         }
 
         /// <summary>

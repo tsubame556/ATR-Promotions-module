@@ -44,6 +44,9 @@ namespace InfantPostureApp
 
         // 最新のセンサ姿勢を保持
         private Dictionary<int, Quaternion> _latestRotations = new Dictionary<int, Quaternion>();
+        
+        // データ記録用に生のSensorDataも保持
+        public Dictionary<int, SensorData> LatestSensorData { get; private set; } = new Dictionary<int, SensorData>();
 
         public void AddPair(string name, int parentId, int childId)
         {
@@ -71,6 +74,7 @@ namespace InfantPostureApp
                 while (driver.DataQueue.TryDequeue(out SensorData data))
                 {
                     _latestRotations[data.SensorId] = data.Rotation;
+                    LatestSensorData[data.SensorId] = data; // 生データを保持
                     driver.Rotation = data.Rotation;
 
                     // Indicator（3D上の球体など）が存在すれば回転を適用

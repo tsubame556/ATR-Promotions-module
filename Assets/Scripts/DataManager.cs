@@ -9,8 +9,8 @@ namespace InfantPostureApp
     public class RecordFrame
     {
         public float Timestamp;
-        // SensorId -> EulerAngles
-        public Dictionary<int, Vector3> SensorEulers = new Dictionary<int, Vector3>();
+        // SensorId -> 生データ
+        public Dictionary<int, SensorData> SensorDataMap = new Dictionary<int, SensorData>();
         // PairName -> RelativeEulerAngles
         public Dictionary<string, Vector3> PairEulers = new Dictionary<string, Vector3>();
     }
@@ -26,9 +26,6 @@ namespace InfantPostureApp
         private List<RecordFrame> _recordedData = new List<RecordFrame>();
         private float _recordStartTime;
 
-        /// <summary>
-        /// 計測開始（メモリバッファへ蓄積開始）
-        /// </summary>
         public void StartRecording()
         {
             if (IsRecording) return;
@@ -39,9 +36,6 @@ namespace InfantPostureApp
             Debug.Log("Recording Started.");
         }
 
-        /// <summary>
-        /// 計測終了
-        /// </summary>
         public void StopRecording()
         {
             if (!IsRecording) return;
@@ -54,21 +48,15 @@ namespace InfantPostureApp
         {
             if (!IsRecording || postureAnalyzer == null) return;
 
-            // 毎フレームのデータを記録する
             var frame = new RecordFrame
             {
                 Timestamp = Time.time - _recordStartTime
             };
 
-            // 個別センサデータの記録
-            foreach (var driver in postureAnalyzer.SensorDrivers)
+            // 個別の全生データを記録
+            foreach (var kvp in postureAnalyzer.LatestSensorData)
             {
-                if (driver != null && driver.IsConnected)
-                {
-                    // ※本来はdriver側から最新オイラーを取得するロジックが必要だが、
-                    // ここではAnalyzer側で計算済みの値を取得すると仮定
-                    // frame.SensorEulers[driver.sensorId] = ...
-                }
+                frame.SensorDataMap[kvp.Key] = kvp.Value;
             }
 
             // ペア相対角度データの記録
@@ -80,10 +68,6 @@ namespace InfantPostureApp
             _recordedData.Add(frame);
         }
 
-        /// <summary>
-        /// 記録済みデータをCSV形式でエクスポートする
-        /// 成功した場合は保存先パスを返し、失敗時はnullを返す
-        /// </summary>
         public string ExportCSV()
         {
             if (_recordedData.Count == 0)
@@ -94,7 +78,6 @@ namespace InfantPostureApp
 
             try
             {
-                // Macのデスクトップディレクトリ等へ保存
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 string fileName = $"InfantPostureData_{timestamp}.csv";
@@ -102,22 +85,60 @@ namespace InfantPostureApp
 
                 StringBuilder sb = new StringBuilder();
                 
-                // ヘッダー生成
+                // --- ヘッダー生成 ---
                 sb.Append("Timestamp,");
                 
-                // 例として最初のフレームからヘッダー項目を抽出（本来は設定内容に依存する）
                 var firstFrame = _recordedData[0];
+                
+                // 生データ用ヘッダー
+                foreach (var sensorId in firstFrame.SensorDataMap.Keys)
+                {
+                    string p = $"S{sensorId}";
+                    sb.Append($"{p}_Qw,{p}_Qx,{p}_Qy,{p}_Qz,");
+                    sb.Append($"{p}_Roll,{p}_Pitch,{p}_Yaw,");
+                    sb.Append($"{p}_AccX,{p}_AccY,{p}_AccZ,");
+                    sb.Append($"{p}_GyroX,{p}_GyroY,{p}_GyroZ,");
+                }
+
+                // ペアデータ用ヘッダー
                 foreach (var pairKey in firstFrame.PairEulers.Keys)
                 {
                     sb.Append($"{pairKey}_Roll,{pairKey}_Pitch,{pairKey}_Yaw,");
                 }
                 sb.AppendLine();
 
-                // データ行生成
+                // --- データ行生成 ---
                 foreach (var frame in _recordedData)
                 {
                     sb.Append($"{frame.Timestamp:F3},");
                     
+                    // 生データ出力
+                    foreach (var sensorId in firstFrame.SensorDataMap.Keys)
+                    {
+                        if (frame.SensorDataMap.TryGetValue(sensorId, out SensorData sd))
+                        {
+                            var q = sd.Rotation;
+                            var e = q.eulerAngles;
+                            var a = sd.Acceleration;
+                            var g = sd.Gyroscope;
+                            
+                            // eulerAnglesは0~360で返るので、必要に応じて-180~180に正規化すると見やすい
+                            float roll = NormalizeAngle(e.x);
+                            float pitch = NormalizeAngle(e.y);
+                            float yaw = NormalizeAngle(e.z);
+
+                            sb.Append($"{q.w:F4},{q.x:F4},{q.y:F4},{q.z:F4},");
+                            sb.Append($"{roll:F2},{pitch:F2},{yaw:F2},");
+                            sb.Append($"{a.x:F2},{a.y:F2},{a.z:F2},");
+                            sb.Append($"{g.x:F2},{g.y:F2},{g.z:F2},");
+                        }
+                        else
+                        {
+                            sb.Append(",,,,,,,,,,,,,");
+                        }
+                    }
+
+                    // ペアデータ出力
                     foreach (var pairKey in firstFrame.PairEulers.Keys)
                     {
                         if (frame.PairEulers.TryGetValue(pairKey, out Vector3 euler))
@@ -142,6 +163,13 @@ namespace InfantPostureApp
                 Debug.LogError($"CSV Export Failed: {e.Message}");
                 return null;
             }
+        }
+
+        private float NormalizeAngle(float angle)
+        {
+            while (angle > 180f) angle -= 360f;
+            while (angle < -180f) angle += 360f;
+            return angle;
         }
     }
 }

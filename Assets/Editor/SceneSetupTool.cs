@@ -41,7 +41,7 @@ namespace InfantPostureApp.Editor
                 driverObj.transform.SetParent(systemObj.transform);
                 var driver = driverObj.AddComponent<TSND151SerialDriver>();
                 driver.sensorId = i;
-                driver.IsDummyMode = true;
+                driver.IsDummyMode = false; // デフォルトで本物のセンサに繋ぐように変更
                 analyzer.SensorDrivers.Add(driver);
             }
             analyzer.AddPair("TestPair(1->2)", 1, 2);

@@ -9,20 +9,18 @@ namespace InfantPostureApp.Editor
     public class SceneSetupTool : UnityEditor.EditorWindow
     {
         // --- Color Palette (Apple Dark Mode Style) ---
-        private static Color colorBg = new Color(0.0f, 0.0f, 0.0f, 1f); // #000000
-        private static Color colorCard = new Color(0.11f, 0.11f, 0.12f, 1f); // #1C1C1E
-        private static Color colorBlue = new Color(0.04f, 0.52f, 1.0f, 1f); // #0A84FF
-        private static Color colorGrayBtn = new Color(0.23f, 0.23f, 0.24f, 1f); // #3A3A3C
+        private static Color colorBg = new Color(0.0f, 0.0f, 0.0f, 1f);
+        private static Color colorCard = new Color(0.11f, 0.11f, 0.12f, 1f);
+        private static Color colorBlue = new Color(0.04f, 0.52f, 1.0f, 1f);
+        private static Color colorGrayBtn = new Color(0.23f, 0.23f, 0.24f, 1f);
         private static Color colorTextPrimary = Color.white;
-        private static Color colorTextSecondary = new Color(0.56f, 0.56f, 0.58f, 1f); // #8E8E93
-        private static Color colorLine = new Color(0.2f, 0.2f, 0.2f, 1f);
+        private static Color colorTextSecondary = new Color(0.56f, 0.56f, 0.58f, 1f);
 
         private static Sprite roundedSprite;
 
         [MenuItem("InfantPostureApp/シーン自動構築 (Scene Setup)")]
         public static void GenerateScene()
         {
-            // 丸角スプライトを生成
             roundedSprite = CreateRoundedSprite(12);
 
             // 1. システムGameObjectの構築
@@ -48,13 +46,91 @@ namespace InfantPostureApp.Editor
             }
             analyzer.AddPair("TestPair(1->2)", 1, 2);
 
-            // 2. UI (Canvas) の構築
+            // ==========================================
+            // 2. 3Dアバター環境構築 (RenderTexture用)
+            // ==========================================
+            GameObject avatarRoot = new GameObject("3DAvatarEnvironment");
+            avatarRoot.transform.position = new Vector3(0, 1000, 0); // UIと干渉しないよう遥か上空に隔離
+
+            // 専用カメラ
+            GameObject avatarCamObj = new GameObject("AvatarCamera");
+            avatarCamObj.transform.SetParent(avatarRoot.transform);
+            avatarCamObj.transform.localPosition = new Vector3(0, 0.5f, -4);
+            Camera avatarCam = avatarCamObj.AddComponent<Camera>();
+            avatarCam.clearFlags = CameraClearFlags.SolidColor;
+            avatarCam.backgroundColor = colorCard; // UIのカードと同じ背景色にする
+
+            // ライト
+            GameObject avatarLight = new GameObject("AvatarLight");
+            avatarLight.transform.SetParent(avatarRoot.transform);
+            avatarLight.transform.localPosition = new Vector3(0, 5, -5);
+            avatarLight.transform.localRotation = Quaternion.Euler(45, 0, 0);
+            Light l = avatarLight.AddComponent<Light>();
+            l.type = LightType.Directional;
+            l.intensity = 1.0f;
+
+            // RenderTexture
+            RenderTexture rt = new RenderTexture(1024, 1024, 24);
+            rt.name = "AvatarRenderTexture";
+            avatarCam.targetTexture = rt;
+
+            // 3Dダミーモデル（Capsule）群の生成とマッピング
+            Material defaultMat = new Material(Shader.Find("Standard"));
+            defaultMat.color = new Color(0.8f, 0.8f, 0.8f);
+
+            GameObject torso = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            torso.name = "Chest_Sensor1";
+            torso.transform.SetParent(avatarRoot.transform);
+            torso.transform.localPosition = Vector3.zero;
+            torso.GetComponent<Renderer>().sharedMaterial = defaultMat;
+            var mapper1 = torso.AddComponent<SensorTransformMapper>();
+            mapper1.analyzer = analyzer; mapper1.targetSensorId = 1;
+
+            GameObject leftArm = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            leftArm.name = "LeftArm_Sensor2";
+            leftArm.transform.SetParent(torso.transform);
+            leftArm.transform.localPosition = new Vector3(-0.8f, 0.5f, 0);
+            leftArm.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
+            leftArm.GetComponent<Renderer>().sharedMaterial = defaultMat;
+            var mapper2 = leftArm.AddComponent<SensorTransformMapper>();
+            mapper2.analyzer = analyzer; mapper2.targetSensorId = 2;
+
+            GameObject rightArm = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            rightArm.name = "RightArm_Sensor3";
+            rightArm.transform.SetParent(torso.transform);
+            rightArm.transform.localPosition = new Vector3(0.8f, 0.5f, 0);
+            rightArm.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
+            rightArm.GetComponent<Renderer>().sharedMaterial = defaultMat;
+            var mapper3 = rightArm.AddComponent<SensorTransformMapper>();
+            mapper3.analyzer = analyzer; mapper3.targetSensorId = 3;
+
+            GameObject leftLeg = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            leftLeg.name = "LeftLeg_Sensor4";
+            leftLeg.transform.SetParent(torso.transform);
+            leftLeg.transform.localPosition = new Vector3(-0.4f, -1.2f, 0);
+            leftLeg.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
+            leftLeg.GetComponent<Renderer>().sharedMaterial = defaultMat;
+            var mapper4 = leftLeg.AddComponent<SensorTransformMapper>();
+            mapper4.analyzer = analyzer; mapper4.targetSensorId = 4;
+
+            GameObject rightLeg = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            rightLeg.name = "RightLeg_Sensor5";
+            rightLeg.transform.SetParent(torso.transform);
+            rightLeg.transform.localPosition = new Vector3(0.4f, -1.2f, 0);
+            rightLeg.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
+            rightLeg.GetComponent<Renderer>().sharedMaterial = defaultMat;
+            var mapper5 = rightLeg.AddComponent<SensorTransformMapper>();
+            mapper5.analyzer = analyzer; mapper5.targetSensorId = 5;
+
+            // ==========================================
+            // 3. UI (Canvas) の構築
+            // ==========================================
             GameObject canvasObj = new GameObject("Canvas");
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             var scaler = canvasObj.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1280, 720); // 基準解像度
+            scaler.referenceResolution = new Vector2(1280, 720);
             canvasObj.AddComponent<GraphicRaycaster>();
 
 #if UNITY_2023_1_OR_NEWER
@@ -68,19 +144,14 @@ namespace InfantPostureApp.Editor
                 eventSystem.AddComponent<StandaloneInputModule>();
             }
 
-            // 3. UI部品の生成 (モダンレイアウト)
-            // 全体背景
             Image bgImg = canvasObj.AddComponent<Image>();
             bgImg.color = colorBg;
 
-            // --- Main Container (Horizontal) ---
             GameObject mainContainer = new GameObject("MainContainer");
             mainContainer.transform.SetParent(canvasObj.transform);
             RectTransform mainRect = mainContainer.AddComponent<RectTransform>();
-            mainRect.anchorMin = Vector2.zero;
-            mainRect.anchorMax = Vector2.one;
-            mainRect.offsetMin = new Vector2(0, 40); // 下部ステータスバー用に40px開ける
-            mainRect.offsetMax = Vector2.zero;
+            mainRect.anchorMin = Vector2.zero; mainRect.anchorMax = Vector2.one;
+            mainRect.offsetMin = new Vector2(0, 40); mainRect.offsetMax = Vector2.zero;
 
             var mainLayout = mainContainer.AddComponent<HorizontalLayoutGroup>();
             mainLayout.padding = new RectOffset(20, 20, 20, 20);
@@ -96,23 +167,19 @@ namespace InfantPostureApp.Editor
             sidebarLayout.childControlWidth = true;
             sidebarLayout.childControlHeight = true;
             sidebarLayout.childForceExpandHeight = false;
-            var sidebarElement = sidebar.AddComponent<LayoutElement>();
-            sidebarElement.preferredWidth = 320; // サイドバーの固定幅
+            sidebar.AddComponent<LayoutElement>().preferredWidth = 320;
 
-            // Group 1: Connection
             var connCard = CreateCard(sidebar.transform, "ConnectionCard");
             CreateLabel(connCard.transform, "CONNECTION");
             uiManager.btnConnectAll = CreateButton(connCard.transform, "Connect All Sensors", colorBlue, colorTextPrimary);
             uiManager.btnDisconnect = CreateButton(connCard.transform, "Disconnect", colorGrayBtn, colorTextPrimary);
 
-            // Group 2: Recording
             var recCard = CreateCard(sidebar.transform, "RecordCard");
             CreateLabel(recCard.transform, "RECORDING");
             uiManager.btnStartRecord = CreateButton(recCard.transform, "Start Record", colorGrayBtn, colorTextPrimary);
             uiManager.btnStopRecord = CreateButton(recCard.transform, "Stop Record", colorGrayBtn, colorTextPrimary);
             uiManager.btnExportCSV = CreateButton(recCard.transform, "Export to CSV", colorGrayBtn, colorTextPrimary);
 
-            // Group 3: Realtime Data
             var dataCard = CreateCard(sidebar.transform, "DataCard");
             CreateLabel(dataCard.transform, "REALTIME DATA");
             uiManager.txtTableData = CreateText(dataCard.transform, "Waiting for data...", colorTextPrimary, 14);
@@ -125,26 +192,25 @@ namespace InfantPostureApp.Editor
             rightLayout.childControlWidth = true;
             rightLayout.childControlHeight = true;
 
-            // 3D View Placeholder (透明)
-            GameObject viewPlaceholder = new GameObject("3DViewArea");
-            viewPlaceholder.transform.SetParent(rightContent.transform);
-            var viewElement = viewPlaceholder.AddComponent<LayoutElement>();
-            viewElement.flexibleHeight = 2; // グラフより広く
+            // 3D Avatar Area (RenderTextureを映すカード)
+            GameObject avatarCard = CreateCard(rightContent.transform, "AvatarCard");
+            avatarCard.AddComponent<LayoutElement>().flexibleHeight = 2; // グラフより広く
+            
+            // 丸角の枠で映像を切り抜く（Mask）
+            Mask avatarMask = avatarCard.AddComponent<Mask>();
+            avatarMask.showMaskGraphic = true;
+
+            CreateLabel(avatarCard.transform, "3D AVATAR (REALTIME POSTURE)");
+
+            GameObject rtObj = new GameObject("AvatarRenderTextureDisplay");
+            rtObj.transform.SetParent(avatarCard.transform);
+            RawImage rtImg = rtObj.AddComponent<RawImage>();
+            rtImg.texture = rt; // カメラ映像を投影
+            rtObj.AddComponent<LayoutElement>().flexibleHeight = 1;
 
             // Graph Area
-            GameObject graphCard = new GameObject("GraphCard");
-            graphCard.transform.SetParent(rightContent.transform);
-            Image graphBg = graphCard.AddComponent<Image>();
-            graphBg.sprite = roundedSprite;
-            graphBg.type = Image.Type.Sliced;
-            graphBg.color = colorCard;
-            var graphElement = graphCard.AddComponent<LayoutElement>();
-            graphElement.flexibleHeight = 1;
-
-            var graphLayout = graphCard.AddComponent<VerticalLayoutGroup>();
-            graphLayout.padding = new RectOffset(16, 16, 16, 16);
-            graphLayout.childControlWidth = true;
-            graphLayout.childControlHeight = true;
+            GameObject graphCard = CreateCard(rightContent.transform, "GraphCard");
+            graphCard.AddComponent<LayoutElement>().flexibleHeight = 1;
 
             CreateLabel(graphCard.transform, "EULER ANGLES GRAPH (Roll=Red, Pitch=Green, Yaw=Cyan)");
 
@@ -152,7 +218,6 @@ namespace InfantPostureApp.Editor
             graphObj.transform.SetParent(graphCard.transform);
             graphObj.AddComponent<RectTransform>();
             var graphController = graphObj.AddComponent<RealtimeGraphController>();
-            // グラフ背景を黒寄りに
             graphController.BackgroundColor = new Color(0.05f, 0.05f, 0.05f, 1f); 
             uiManager.graphController = graphController;
 
@@ -160,11 +225,8 @@ namespace InfantPostureApp.Editor
             GameObject statusBar = new GameObject("StatusBar");
             statusBar.transform.SetParent(canvasObj.transform);
             RectTransform statusRect = statusBar.AddComponent<RectTransform>();
-            statusRect.anchorMin = Vector2.zero;
-            statusRect.anchorMax = new Vector2(1, 0);
-            statusRect.pivot = new Vector2(0.5f, 0);
-            statusRect.anchoredPosition = Vector2.zero;
-            statusRect.sizeDelta = new Vector2(0, 40);
+            statusRect.anchorMin = Vector2.zero; statusRect.anchorMax = new Vector2(1, 0);
+            statusRect.pivot = new Vector2(0.5f, 0); statusRect.sizeDelta = new Vector2(0, 40);
 
             Image statusBg = statusBar.AddComponent<Image>();
             statusBg.color = colorCard;
@@ -185,37 +247,32 @@ namespace InfantPostureApp.Editor
             GameObject toastObj = new GameObject("ToastPanel");
             toastObj.transform.SetParent(canvasObj.transform);
             RectTransform toastRect = toastObj.AddComponent<RectTransform>();
-            toastRect.anchorMin = new Vector2(0.5f, 1);
-            toastRect.anchorMax = new Vector2(0.5f, 1);
-            toastRect.pivot = new Vector2(0.5f, 1);
-            toastRect.anchoredPosition = new Vector2(0, -60);
+            toastRect.anchorMin = new Vector2(0.5f, 1); toastRect.anchorMax = new Vector2(0.5f, 1);
+            toastRect.pivot = new Vector2(0.5f, 1); toastRect.anchoredPosition = new Vector2(0, -60);
             toastRect.sizeDelta = new Vector2(400, 50);
 
             Image toastImg = toastObj.AddComponent<Image>();
-            toastImg.sprite = roundedSprite;
-            toastImg.type = Image.Type.Sliced;
+            toastImg.sprite = roundedSprite; toastImg.type = Image.Type.Sliced;
             toastImg.color = new Color(0.1f, 0.1f, 0.1f, 0.95f);
 
             var toastGroup = toastObj.AddComponent<CanvasGroup>();
-            toastGroup.alpha = 0f;
-            toastGroup.blocksRaycasts = false;
+            toastGroup.alpha = 0f; toastGroup.blocksRaycasts = false;
 
             Text tText = CreateText(toastObj.transform, "Notification", colorTextPrimary, 16);
             tText.alignment = TextAnchor.MiddleCenter;
             var tRect = tText.GetComponent<RectTransform>();
             tRect.anchorMin = Vector2.zero; tRect.anchorMax = Vector2.one;
             tRect.offsetMin = Vector2.zero; tRect.offsetMax = Vector2.zero;
-            Object.DestroyImmediate(tText.GetComponent<ContentSizeFitter>()); // 固定枠のため外す
+            Object.DestroyImmediate(tText.GetComponent<ContentSizeFitter>());
 
             uiManager.toastPanel = toastRect;
             uiManager.toastText = tText;
             uiManager.toastCanvasGroup = toastGroup;
 
-            Debug.Log("Apple-Style Scene Setup Complete! UI has been beautifully aligned and generated.");
+            Debug.Log("Apple-Style Scene Setup Complete! UI and 3D Avatar have been successfully generated.");
         }
 
         // --- Helper Methods ---
-        
         private static GameObject CreateCard(Transform parent, string name)
         {
             GameObject card = new GameObject(name);
@@ -250,7 +307,7 @@ namespace InfantPostureApp.Editor
             GameObject btnObj = new GameObject("Btn_" + label.Replace(" ", ""));
             btnObj.transform.SetParent(parent);
             var element = btnObj.AddComponent<LayoutElement>();
-            element.minHeight = 44; // iOS standard touch target height
+            element.minHeight = 44;
 
             Image img = btnObj.AddComponent<Image>();
             img.sprite = roundedSprite;
@@ -276,16 +333,12 @@ namespace InfantPostureApp.Editor
             txt.fontSize = fontSize;
             txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             
-            // Textの高さを自動調整
             var fitter = txtObj.AddComponent<ContentSizeFitter>();
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             
             return txt;
         }
 
-        /// <summary>
-        /// プロシージャルに角丸スプライトを生成する（外部アセット不要化）
-        /// </summary>
         private static Sprite CreateRoundedSprite(int radius)
         {
             int size = radius * 2 + 2;

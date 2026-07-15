@@ -81,9 +81,8 @@ namespace InfantPostureApp
 
                 Debug.Log($"[Sensor {sensorId}] Connected to {portName}");
                 
-                // 【要調整】実際の計測開始コマンドバイナリを送信
-                // 例: byte[] startCmd = new byte[] { 0x9A, 0x00, 0x01, 0x13, 0x88 }; // (コマンド例)
-                // _serialPort.Write(startCmd, 0, startCmd.Length);
+                // 実際の計測開始コマンドバイナリを送信 (0x13 = Start Measurement)
+                SendCommand(0x13);
             }
             catch (Exception e)
             {
@@ -108,9 +107,8 @@ namespace InfantPostureApp
             {
                 try 
                 {
-                    // 【要調整】実際の計測停止コマンドバイナリを送信
-                    // byte[] stopCmd = new byte[] { 0x9A, 0x00, 0x01, 0x15, 0x8A };
-                    // _serialPort.Write(stopCmd, 0, stopCmd.Length);
+                    // 実際の計測停止コマンドバイナリを送信 (0x15 = Stop Measurement)
+                    SendCommand(0x15);
                 } 
                 catch { }
 
@@ -146,57 +144,96 @@ namespace InfantPostureApp
             }
         }
 
+        public void SendCommand(byte cmd, byte[] args = null)
+        {
+            if (_serialPort == null || !_serialPort.IsOpen) return;
+            try 
+            {
+                int len = (args != null) ? args.Length : 0;
+                byte[] packet = new byte[3 + len];
+                packet[0] = 0x9A; // Header
+                packet[1] = cmd;  // Command code
+                
+                byte bcc = (byte)(0x9A ^ cmd);
+                for (int i = 0; i < len; i++) {
+                    packet[2 + i] = args[i];
+                    bcc ^= args[i];
+                }
+                packet[2 + len] = bcc;
+                
+                _serialPort.Write(packet, 0, packet.Length);
+                Debug.Log($"[Sensor {sensorId}] Sent Command: 0x{cmd:X2}");
+            } 
+            catch(Exception e) 
+            {
+                Debug.LogWarning($"[Sensor {sensorId}] Send Error: {e.Message}");
+            }
+        }
+
+        private bool _hasLoggedFormat = false;
+
         private void ProcessBytes(byte[] newBytes, int length)
         {
-            // リングバッファまたは単純なバッファに追加
             if (_rxBufferLength + length > _rxBuffer.Length)
             {
-                // バッファオーバーフロー対策
-                _rxBufferLength = 0;
+                _rxBufferLength = 0; // バッファオーバーフロー対策
             }
             Array.Copy(newBytes, 0, _rxBuffer, _rxBufferLength, length);
             _rxBufferLength += length;
 
-            // 汎用フレーミング処理（ヘッダ探索とパケット切り出し）
-            // ※以下はお客様にてTSND151の実仕様に合わせて調整していただくための「枠組み」です。
+            // 動的BCCパケットフレーミング
+            // 長さが不明な場合でも、XORチェックサム(BCC)を全探索してパケットを特定します
             int parseIndex = 0;
-            while (_rxBufferLength - parseIndex >= 3) // 最小パケット長を仮に3バイトとする
+            while (_rxBufferLength - parseIndex >= 3) // 最小: ヘッダ, コマンド, BCC
             {
-                // 例: ヘッダが 0x9A だと仮定
-                if (_rxBuffer[parseIndex] == 0x9A)
+                if (_rxBuffer[parseIndex] == 0x9A) // ヘッダ検出
                 {
-                    // 例: 次のバイトがペイロード長だと仮定
-                    int payloadLength = _rxBuffer[parseIndex + 1];
-                    int packetLength = payloadLength + 3; // ヘッダ(1) + 長さ(1) + ペイロード + BCC(1)と仮定
-
-                    // 異常な長さならヘッダを誤検知したとみなして進める
-                    if (packetLength < 3 || packetLength > 200) 
+                    byte cmd = _rxBuffer[parseIndex + 1];
+                    int validLength = -1;
+                    int maxSearch = Math.Min(100, _rxBufferLength - parseIndex); // 一般的に1パケット100バイト以内
+                    
+                    // パケット長を仮定してBCCを計算し、末尾のBCCと一致するかチェック
+                    for (int len = 3; len <= maxSearch; len++)
                     {
-                        parseIndex++;
-                        continue;
+                        byte bcc = 0;
+                        for (int i = 0; i < len - 1; i++) {
+                            bcc ^= _rxBuffer[parseIndex + i];
+                        }
+                        if (bcc == _rxBuffer[parseIndex + len - 1]) {
+                            validLength = len;
+                            break; // 正しいパケット長を発見！
+                        }
                     }
 
-                    if (_rxBufferLength - parseIndex >= packetLength)
+                    if (validLength != -1)
                     {
-                        // パケットが完全に到着している
-                        byte[] packet = new byte[packetLength];
-                        Array.Copy(_rxBuffer, parseIndex, packet, 0, packetLength);
+                        // パケットを抽出
+                        byte[] packet = new byte[validLength];
+                        Array.Copy(_rxBuffer, parseIndex, packet, 0, validLength);
+                        
+                        // 最初のデータパケットならHexダンプを出力して形式をログに残す（Discovery Mode）
+                        if (!_hasLoggedFormat && (cmd == 0x80 || cmd == 0x8D)) 
+                        {
+                            Debug.Log($"<color=cyan>[TSND151-Discovery] Sensor {sensorId} Command: 0x{cmd:X2} / Length: {validLength} bytes\nData: {BitConverter.ToString(packet)}</color>");
+                            _hasLoggedFormat = true;
+                        }
                         
                         ParsePacket(packet);
-
-                        parseIndex += packetLength;
-                        continue;
+                        parseIndex += validLength;
                     }
                     else
                     {
-                        // パケットの到着待ち
-                        break;
+                        // BCCが一致する長さが見つからない場合
+                        if (_rxBufferLength - parseIndex > 100) {
+                            parseIndex++; // 100バイト探しても無い場合はノイズとみなして破棄
+                        } else {
+                            break; // まだパケットの全データが到着していないので待機
+                        }
                     }
                 }
                 else
                 {
-                    // ヘッダが見つからない場合は1バイト進める
-                    parseIndex++;
+                    parseIndex++; // 0x9Aが見つかるまで1バイトずつ読み飛ばし
                 }
             }
 

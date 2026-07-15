@@ -52,6 +52,10 @@ def read_loop(ser, sensor_id):
                 data = ser.read(ser.in_waiting)
                 buffer.extend(data)
                 
+                # デバッグ用に受信した生データをUnityコンソールへ出力（量が多い場合は後で消します）
+                if len(data) > 0:
+                    print(f"[Bridge-Debug] Sensor {sensor_id} RECV: {data.hex()}", file=sys.stderr)
+                
                 # パケット解析
                 parse_idx = 0
                 while len(buffer) - parse_idx >= 3:
@@ -111,6 +115,8 @@ def main():
         print(f"[Bridge] Connecting to Sensor {sensor_id} on {port}...")
         try:
             ser = serial.Serial(port, 115200, timeout=0.1)
+            ser.dtr = True
+            ser.rts = True
             serials.append(ser)
             init_sensor(ser)
             print(f"[Bridge] Sensor {sensor_id} initialized.")

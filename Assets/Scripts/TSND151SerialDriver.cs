@@ -49,6 +49,7 @@ namespace InfantPostureApp
         public Quaternion Rotation { get; set; } = Quaternion.identity;
 
         private float _lastDataTime = 0f;
+        private volatile bool _hasNewData = false;
 
         private void Awake()
         {
@@ -88,9 +89,17 @@ namespace InfantPostureApp
 
         private void Update()
         {
-            if (!IsDummyMode && IsConnected)
+            if (!IsDummyMode)
             {
-                if (Time.time - _lastDataTime > 3.0f)
+                if (_hasNewData)
+                {
+                    IsConnected = true;
+                    ConnectionStatus = "Connected";
+                    _lastDataTime = Time.time;
+                    _hasNewData = false;
+                }
+
+                if (IsConnected && Time.time - _lastDataTime > 3.0f)
                 {
                     IsConnected = false;
                     ConnectionStatus = "Data Timeout";
@@ -108,9 +117,7 @@ namespace InfantPostureApp
         {
             if (!IsDummyMode)
             {
-                IsConnected = true;
-                ConnectionStatus = "Connected";
-                _lastDataTime = Time.time;
+                _hasNewData = true;
             }
             DataQueue.Enqueue(sd);
         }

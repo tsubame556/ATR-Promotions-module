@@ -18,6 +18,13 @@ namespace InfantPostureApp
         [HideInInspector] public LineRenderer ConnectorLine;
     }
 
+    [System.Serializable]
+    public class SensorIndicatorMapping
+    {
+        public int SensorId;
+        public Transform IndicatorTransform;
+    }
+
     /// <summary>
     /// 複数センサのクォータニオンから、任意のペアの関節角度（相対オイラー角）を演算するクラス
     /// M対Nの柔軟な設定を許容する
@@ -29,8 +36,7 @@ namespace InfantPostureApp
         public List<TSND151SerialDriver> SensorDrivers = new List<TSND151SerialDriver>();
         
         // 3Dモデル上のセンサ装着部位（Indicator）のマッピング
-        // Key: SensorId, Value: Transform
-        public Dictionary<int, Transform> SensorIndicators = new Dictionary<int, Transform>();
+        public List<SensorIndicatorMapping> SensorIndicators = new List<SensorIndicatorMapping>();
         
         [Header("Pair Configuration")]
         // ユーザーが動的に設定可能なペアリスト
@@ -68,9 +74,12 @@ namespace InfantPostureApp
                     driver.Rotation = data.Rotation;
 
                     // Indicator（3D上の球体など）が存在すれば回転を適用
-                    if (SensorIndicators.TryGetValue(data.SensorId, out Transform indicator))
+                    foreach (var mapping in SensorIndicators)
                     {
-                        indicator.rotation = data.Rotation;
+                        if (mapping.SensorId == data.SensorId && mapping.IndicatorTransform != null)
+                        {
+                            mapping.IndicatorTransform.rotation = data.Rotation;
+                        }
                     }
                 }
             }

@@ -74,53 +74,28 @@ namespace InfantPostureApp.Editor
             rt.name = "AvatarRenderTexture";
             avatarCam.targetTexture = rt;
 
-            // 3Dダミーモデル（Capsule）群の生成とマッピング
-            Material defaultMat = new Material(Shader.Find("Standard"));
-            defaultMat.color = new Color(0.8f, 0.8f, 0.8f);
+            // 3Dダミーモデル（BabyDummy.glb）のロードと生成
+            GameObject babyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/BabyDummy.glb");
+            if (babyPrefab != null)
+            {
+                GameObject babyModel = (GameObject)PrefabUtility.InstantiatePrefab(babyPrefab);
+                babyModel.name = "BabyDummyAvatar";
+                babyModel.transform.SetParent(avatarRoot.transform);
+                babyModel.transform.localPosition = new Vector3(0, -0.8f, 0);
+                babyModel.transform.localScale = new Vector3(1.5f, 1.5f, 1.5f);
+                babyModel.transform.localRotation = Quaternion.Euler(0, 180, 0); // カメラ側を向くように反転
 
-            GameObject torso = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            torso.name = "Chest_Sensor1";
-            torso.transform.SetParent(avatarRoot.transform);
-            torso.transform.localPosition = Vector3.zero;
-            torso.GetComponent<Renderer>().sharedMaterial = defaultMat;
-            var mapper1 = torso.AddComponent<SensorTransformMapper>();
-            mapper1.analyzer = analyzer; mapper1.targetSensorId = 1;
-
-            GameObject leftArm = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            leftArm.name = "LeftArm_Sensor2";
-            leftArm.transform.SetParent(torso.transform);
-            leftArm.transform.localPosition = new Vector3(-0.8f, 0.5f, 0);
-            leftArm.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
-            leftArm.GetComponent<Renderer>().sharedMaterial = defaultMat;
-            var mapper2 = leftArm.AddComponent<SensorTransformMapper>();
-            mapper2.analyzer = analyzer; mapper2.targetSensorId = 2;
-
-            GameObject rightArm = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            rightArm.name = "RightArm_Sensor3";
-            rightArm.transform.SetParent(torso.transform);
-            rightArm.transform.localPosition = new Vector3(0.8f, 0.5f, 0);
-            rightArm.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
-            rightArm.GetComponent<Renderer>().sharedMaterial = defaultMat;
-            var mapper3 = rightArm.AddComponent<SensorTransformMapper>();
-            mapper3.analyzer = analyzer; mapper3.targetSensorId = 3;
-
-            GameObject leftLeg = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            leftLeg.name = "LeftLeg_Sensor4";
-            leftLeg.transform.SetParent(torso.transform);
-            leftLeg.transform.localPosition = new Vector3(-0.4f, -1.2f, 0);
-            leftLeg.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
-            leftLeg.GetComponent<Renderer>().sharedMaterial = defaultMat;
-            var mapper4 = leftLeg.AddComponent<SensorTransformMapper>();
-            mapper4.analyzer = analyzer; mapper4.targetSensorId = 4;
-
-            GameObject rightLeg = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            rightLeg.name = "RightLeg_Sensor5";
-            rightLeg.transform.SetParent(torso.transform);
-            rightLeg.transform.localPosition = new Vector3(0.4f, -1.2f, 0);
-            rightLeg.transform.localScale = new Vector3(0.4f, 0.8f, 0.4f);
-            rightLeg.GetComponent<Renderer>().sharedMaterial = defaultMat;
-            var mapper5 = rightLeg.AddComponent<SensorTransformMapper>();
-            mapper5.analyzer = analyzer; mapper5.targetSensorId = 5;
+                // 各パーツにSensorTransformMapperをアタッチ
+                AttachMapper(babyModel.transform, "torso", analyzer, 1);
+                AttachMapper(babyModel.transform, "arm-left", analyzer, 2);
+                AttachMapper(babyModel.transform, "arm-right", analyzer, 3);
+                AttachMapper(babyModel.transform, "leg-left", analyzer, 4);
+                AttachMapper(babyModel.transform, "leg-right", analyzer, 5);
+            }
+            else
+            {
+                Debug.LogWarning("BabyDummy.glbが見つかりません。Assets/Models/内に正しく配置されているか確認してください。");
+            }
 
             // ==========================================
             // 3. UI (Canvas) の構築
@@ -273,6 +248,28 @@ namespace InfantPostureApp.Editor
         }
 
         // --- Helper Methods ---
+        private static void AttachMapper(Transform root, string targetName, PostureAnalyzer analyzer, int sensorId)
+        {
+            Transform target = FindChildRecursive(root, targetName);
+            if (target != null)
+            {
+                var mapper = target.gameObject.AddComponent<SensorTransformMapper>();
+                mapper.analyzer = analyzer;
+                mapper.targetSensorId = sensorId;
+            }
+        }
+
+        private static Transform FindChildRecursive(Transform parent, string exactName)
+        {
+            if (parent.name == exactName) return parent;
+            foreach (Transform child in parent)
+            {
+                Transform found = FindChildRecursive(child, exactName);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
         private static GameObject CreateCard(Transform parent, string name)
         {
             GameObject card = new GameObject(name);

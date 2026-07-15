@@ -142,7 +142,10 @@ namespace InfantPostureApp.Editor
             sidebarLayout.childControlWidth = true;
             sidebarLayout.childControlHeight = true;
             sidebarLayout.childForceExpandHeight = false;
-            sidebar.AddComponent<LayoutElement>().preferredWidth = 320;
+            var sidebarElement = sidebar.AddComponent<LayoutElement>();
+            sidebarElement.minWidth = 350;
+            sidebarElement.preferredWidth = 350;
+            sidebarElement.flexibleWidth = 0;
 
             var connCard = CreateCard(sidebar.transform, "ConnectionCard");
             CreateLabel(connCard.transform, "CONNECTION");
@@ -164,12 +167,15 @@ namespace InfantPostureApp.Editor
                 row.transform.SetParent(connCard.transform);
                 var rowLayout = row.AddComponent<HorizontalLayoutGroup>();
                 rowLayout.spacing = 10;
+                rowLayout.childAlignment = TextAnchor.MiddleCenter;
                 rowLayout.childControlWidth = true;
                 rowLayout.childControlHeight = true;
                 rowLayout.childForceExpandHeight = false;
 
                 var element = row.AddComponent<LayoutElement>();
                 element.minHeight = 30;
+                element.preferredHeight = 30;
+                element.flexibleHeight = 0;
 
                 Text label = CreateText(row.transform, $"Sensor {i + 1}:", colorTextSecondary, 12, false);
                 label.alignment = TextAnchor.MiddleLeft;
@@ -203,6 +209,8 @@ namespace InfantPostureApp.Editor
             // --- Right Content ---
             GameObject rightContent = new GameObject("RightContent");
             rightContent.transform.SetParent(mainContainer.transform);
+            var rightElement = rightContent.AddComponent<LayoutElement>();
+            rightElement.flexibleWidth = 1;
             var rightLayout = rightContent.AddComponent<VerticalLayoutGroup>();
             rightLayout.spacing = 20;
             rightLayout.childControlWidth = true;
@@ -342,6 +350,7 @@ namespace InfantPostureApp.Editor
 
             var element = card.AddComponent<LayoutElement>();
             element.flexibleWidth = 1;
+            element.flexibleHeight = 0;
 
             return card;
         }
@@ -399,6 +408,9 @@ namespace InfantPostureApp.Editor
             bgObj.transform.SetParent(parent);
             var element = bgObj.AddComponent<LayoutElement>();
             element.minHeight = 30;
+            element.preferredHeight = 30;
+            element.flexibleHeight = 0;
+            element.flexibleWidth = 1;
 
             Image bg = bgObj.AddComponent<Image>();
             bg.color = new Color(0.95f, 0.95f, 0.95f, 1f); // 視認性のための薄いグレー

@@ -279,14 +279,42 @@ namespace InfantPostureApp
             if (txtTableData == null) return;
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("=== Realtime Angles ===");
             
-            foreach (var pair in postureAnalyzer.ActivePairs)
+            // 1. 各センサ単体の生角度（Roll, Pitch, Yaw）を表示
+            sb.AppendLine("=== Absolute Angles ===");
+            bool hasConnected = false;
+            foreach (var driver in postureAnalyzer.SensorDrivers)
             {
-                sb.AppendLine($"[Pair: {pair.PairName}]");
-                sb.AppendLine($"  Roll:  {pair.RelativeEulerAngles.x:F1}°");
-                sb.AppendLine($"  Pitch: {pair.RelativeEulerAngles.y:F1}°");
-                sb.AppendLine($"  Yaw:   {pair.RelativeEulerAngles.z:F1}°");
+                if (driver != null && driver.IsConnected)
+                {
+                    hasConnected = true;
+                    var e = driver.Rotation.eulerAngles;
+                    float rx = e.x > 180 ? e.x - 360 : e.x;
+                    float ry = e.y > 180 ? e.y - 360 : e.y;
+                    float rz = e.z > 180 ? e.z - 360 : e.z;
+                    sb.AppendLine($"Sensor {driver.sensorId}: R={rx:F1}° P={ry:F1}° Y={rz:F1}°");
+                }
+            }
+            if (!hasConnected) sb.AppendLine("No sensors connected.");
+            
+            sb.AppendLine();
+            
+            // 2. ペアごとの相対角度を表示
+            sb.AppendLine("=== Relative Angles ===");
+            if (postureAnalyzer.ActivePairs.Count == 0)
+            {
+                sb.AppendLine("(No Pairs Configured)");
+            }
+            else
+            {
+                foreach (var pair in postureAnalyzer.ActivePairs)
+                {
+                    // 内部のID設定が漏れている場合（0->0など）が一目でわかるように表示
+                    sb.AppendLine($"[{pair.PairName} (S{pair.ParentSensorId}->S{pair.ChildSensorId})]");
+                    sb.AppendLine($"  Roll:  {pair.RelativeEulerAngles.x:F1}°");
+                    sb.AppendLine($"  Pitch: {pair.RelativeEulerAngles.y:F1}°");
+                    sb.AppendLine($"  Yaw:   {pair.RelativeEulerAngles.z:F1}°");
+                }
             }
             
             txtTableData.text = sb.ToString();

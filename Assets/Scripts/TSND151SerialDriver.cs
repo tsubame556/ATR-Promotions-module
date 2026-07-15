@@ -156,10 +156,26 @@ namespace InfantPostureApp
                 {
                     // 実際の計測停止コマンドバイナリを送信 (0x15 = Stop Measurement)
                     SendCommand(0x15);
+                    // Mac OSのバッファからパケットが確実に送信されるのを待つ
+                    System.Threading.Thread.Sleep(100);
+
+                    // 未送信・未受信のバッファを破棄（OSがポートを握り続けるのを防ぐ）
+                    _serialPort.DiscardInBuffer();
+                    _serialPort.DiscardOutBuffer();
+                    
+                    // Bluetooth/シリアル通信のハードウェア的な切断をOSに要求する
+                    _serialPort.DtrEnable = false;
+                    _serialPort.RtsEnable = false;
+                    System.Threading.Thread.Sleep(50);
                 } 
                 catch { }
 
-                _serialPort.Close();
+                try 
+                {
+                    _serialPort.Close();
+                    _serialPort.Dispose(); // アンマネージドリソースの解放を明示
+                }
+                catch { }
             }
 
             _serialPort = null;

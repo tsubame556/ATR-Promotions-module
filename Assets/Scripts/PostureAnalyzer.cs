@@ -127,8 +127,16 @@ namespace InfantPostureApp
         {
             if (pair.ConnectorLine == null) return;
             
-            if (SensorIndicators.TryGetValue(pair.ParentSensorId, out Transform pTransform) &&
-                SensorIndicators.TryGetValue(pair.ChildSensorId, out Transform cTransform))
+            Transform pTransform = null;
+            Transform cTransform = null;
+
+            foreach (var mapping in SensorIndicators)
+            {
+                if (mapping.SensorId == pair.ParentSensorId) pTransform = mapping.IndicatorTransform;
+                if (mapping.SensorId == pair.ChildSensorId) cTransform = mapping.IndicatorTransform;
+            }
+
+            if (pTransform != null && cTransform != null)
             {
                 pair.ConnectorLine.SetPosition(0, pTransform.position);
                 pair.ConnectorLine.SetPosition(1, cTransform.position);

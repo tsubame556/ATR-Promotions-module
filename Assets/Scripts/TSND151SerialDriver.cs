@@ -56,6 +56,13 @@ namespace InfantPostureApp
 
             portName = port;
             
+            if (_isRunning)
+            {
+                // TSND151 計測停止コマンド (0x15) + パラメータ(0x00)
+                SendCommand(0x15, new byte[] { 0x00 });
+                System.Threading.Thread.Sleep(200); // コマンド送信完了まで少し待機
+            }
+            
             if (IsDummyMode)
             {
                 ConnectionStatus = "Connected (Dummy)";
@@ -76,13 +83,31 @@ namespace InfantPostureApp
                 _isRunning = true;
                 ConnectionStatus = "Connected";
                 
+                // TSND151 計測開始コマンド (0x13) + 相対時間での開始時刻(1秒後)と終了時刻(フリーラン)を指定する14バイトのパラメータ
+                byte[] startParams = new byte[] {
+                    0x00, // Mode: 0 (相対時間)
+                    0x00, // Year
+                    0x01, // Month
+                    0x01, // Day
+                    0x00, // Hour
+                    0x00, // Minute
+                    0x01, // Second (1秒後に開始)
+                    0x00, // End Mode: 0 (相対時間)
+                    0x00, // End Year
+                    0x01, // End Month
+                    0x01, // End Day
+                    0x00, // End Hour
+                    0x00, // End Minute
+                    0x00  // End Second (0でフリーラン)
+                };
+                SendCommand(0x13, startParams);
+                
                 // 受信スレッドの開始
                 _readThread = new Thread(ReadLoop);
                 _readThread.IsBackground = true;
                 _readThread.Start();
 
                 Debug.Log($"[Sensor {sensorId}] Connected to {portName}");
-                
                 // 実際の計測開始コマンドバイナリを送信 (0x13 = Start Measurement)
                 SendCommand(0x13);
             }

@@ -314,11 +314,6 @@ namespace InfantPostureApp
                 az = ParseInt24(packet, 20) * 0.0001f;
             }
 
-            if (DataManager.Instance != null && DataManager.Instance.IsRecording)
-            {
-                DataManager.Instance.AddData(sensorId, qw, qx, qy, qz, ax, ay, az);
-            }
-
             // アバター動作用のキューへ登録
             Quaternion q = new Quaternion(qx, qy, qz, qw); // Unityは(x,y,z,w)の順
             Vector3 acc = new Vector3(ax, ay, az);

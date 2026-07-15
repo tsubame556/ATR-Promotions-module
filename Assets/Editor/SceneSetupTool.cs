@@ -74,27 +74,27 @@ namespace InfantPostureApp.Editor
             rt.name = "AvatarRenderTexture";
             avatarCam.targetTexture = rt;
 
-            // 3Dダミーモデル（BabyDummy.glb）のロードと生成
-            GameObject babyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/BabyDummy.glb");
+            // 3Dダミーモデル（CesiumMan.glb）のロードと生成
+            GameObject babyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/CesiumMan.glb");
             if (babyPrefab != null)
             {
                 GameObject babyModel = (GameObject)PrefabUtility.InstantiatePrefab(babyPrefab);
-                babyModel.name = "BabyDummyAvatar";
+                babyModel.name = "CesiumManAvatar";
                 babyModel.transform.SetParent(avatarRoot.transform);
                 babyModel.transform.localPosition = new Vector3(0, -0.8f, 0);
-                babyModel.transform.localScale = new Vector3(1.5f, 1.5f, 1.5f);
+                babyModel.transform.localScale = new Vector3(2.5f, 2.5f, 2.5f);
                 babyModel.transform.localRotation = Quaternion.Euler(0, 180, 0); // カメラ側を向くように反転
 
                 // 各パーツにSensorTransformMapperをアタッチ
-                AttachMapper(babyModel.transform, "torso", analyzer, 1);
-                AttachMapper(babyModel.transform, "arm-left", analyzer, 2);
-                AttachMapper(babyModel.transform, "arm-right", analyzer, 3);
-                AttachMapper(babyModel.transform, "leg-left", analyzer, 4);
-                AttachMapper(babyModel.transform, "leg-right", analyzer, 5);
+                AttachMapper(babyModel.transform, "Skeleton_torso_joint_1", analyzer, 1);
+                AttachMapper(babyModel.transform, "Skeleton_arm_joint_L__2_", analyzer, 2);
+                AttachMapper(babyModel.transform, "Skeleton_arm_joint_R__2_", analyzer, 3);
+                AttachMapper(babyModel.transform, "leg_joint_L_1", analyzer, 4);
+                AttachMapper(babyModel.transform, "leg_joint_R_1", analyzer, 5);
             }
             else
             {
-                Debug.LogWarning("BabyDummy.glbが見つかりません。Assets/Models/内に正しく配置されているか確認してください。");
+                Debug.LogWarning("CesiumMan.glbが見つかりません。Assets/Models/内に正しく配置されているか確認してください。");
             }
 
             // ==========================================

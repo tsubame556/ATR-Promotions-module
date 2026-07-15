@@ -94,7 +94,7 @@ namespace InfantPostureApp.Editor
             var sidebarLayout = sidebar.AddComponent<VerticalLayoutGroup>();
             sidebarLayout.spacing = 20;
             sidebarLayout.childControlWidth = true;
-            sidebarLayout.childControlHeight = false;
+            sidebarLayout.childControlHeight = true;
             sidebarLayout.childForceExpandHeight = false;
             var sidebarElement = sidebar.AddComponent<LayoutElement>();
             sidebarElement.preferredWidth = 320; // サイドバーの固定幅
@@ -199,7 +199,7 @@ namespace InfantPostureApp.Editor
             layout.padding = new RectOffset(16, 16, 16, 16);
             layout.spacing = 12;
             layout.childControlWidth = true;
-            layout.childControlHeight = false;
+            layout.childControlHeight = true;
             layout.childForceExpandHeight = false;
 
             var element = card.AddComponent<LayoutElement>();

@@ -48,6 +48,8 @@ namespace InfantPostureApp
         // 最新の回転データ（他スクリプトから参照可能）
         public Quaternion Rotation { get; set; } = Quaternion.identity;
 
+        private float _lastDataTime = 0f;
+
         private void Awake()
         {
             // 同じIDのドライバが複数存在する場合は上書きする
@@ -80,8 +82,20 @@ namespace InfantPostureApp
                 return;
             }
 
-            IsConnected = true;
-            ConnectionStatus = "Connected";
+            IsConnected = false;
+            ConnectionStatus = "Connecting...";
+        }
+
+        private void Update()
+        {
+            if (!IsDummyMode && IsConnected)
+            {
+                if (Time.time - _lastDataTime > 3.0f)
+                {
+                    IsConnected = false;
+                    ConnectionStatus = "Data Timeout";
+                }
+            }
         }
 
         public void Disconnect()
@@ -92,6 +106,12 @@ namespace InfantPostureApp
 
         public void EnqueueData(SensorData sd)
         {
+            if (!IsDummyMode)
+            {
+                IsConnected = true;
+                ConnectionStatus = "Connected";
+                _lastDataTime = Time.time;
+            }
             DataQueue.Enqueue(sd);
         }
     }

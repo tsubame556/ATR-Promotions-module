@@ -193,6 +193,10 @@ namespace InfantPostureApp.Editor
             uiManager.btnExportCSV = CreateButton(recCard.transform, "Export to CSV", colorGrayBtn, colorTextPrimary);
 
             var dataCard = CreateCard(sidebar.transform, "DataCard");
+            var dataCardLayout = dataCard.GetComponent<LayoutElement>();
+            dataCardLayout.flexibleHeight = 1; // 縦の余白をすべて埋めるように拡張
+            dataCardLayout.minHeight = 150;    // 最低限の高さを確保
+
             CreateLabel(dataCard.transform, "REALTIME DATA");
             uiManager.txtTableData = CreateText(dataCard.transform, "Waiting for data...", colorTextPrimary, 14);
 

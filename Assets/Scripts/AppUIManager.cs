@@ -49,6 +49,11 @@ namespace InfantPostureApp
 
         private void Start()
         {
+            if (TSND151UdpManager.Instance == null)
+            {
+                gameObject.AddComponent<TSND151UdpManager>();
+            }
+
             // ボタンのイベント紐付け
             if (btnConnectAll != null)
                 btnConnectAll.onClick.AddListener(OnConnectAllClicked);
@@ -122,30 +127,45 @@ namespace InfantPostureApp
         private void OnConnectAllClicked()
         {
             if (postureAnalyzer == null) return;
+            
+            List<string> selectedPorts = new List<string>();
+
             for (int i = 0; i < postureAnalyzer.SensorDrivers.Count; i++)
             {
                 var driver = postureAnalyzer.SensorDrivers[i];
-                if (driver != null)
+                if (driver == null) continue;
+
+                // UIからポート名を取得（設定されていれば）
+                string targetPort = driver.portName;
+                if (portDropdowns != null && i < portDropdowns.Length && portDropdowns[i] != null)
                 {
-                    string targetPort = driver.portName;
-                    if (portInputs != null && portInputs.Length > i && portInputs[i] != null)
+                    string selectedText = portDropdowns[i].options[portDropdowns[i].value].text;
+                    if (selectedText == "None" || string.IsNullOrEmpty(selectedText))
                     {
-                        string inputText = portInputs[i].text.Trim();
-                        if (string.IsNullOrEmpty(inputText))
-                        {
-                            Debug.Log($"[UIManager] Sensor {i + 1} port is empty. Skipping.");
-                            continue;
-                        }
-                        // MacではBluetooth SPPに /dev/tty.* を使うとOS側でデッドロックやゾンビ化が発生するため、 /dev/cu.* (Call-Up)へ変換する
-                        if (inputText.StartsWith("/dev/tty."))
-                        {
-                            inputText = inputText.Replace("/dev/tty.", "/dev/cu.");
-                        }
-                        targetPort = inputText;
+                        Debug.Log($"[UIManager] Sensor {i+1} port is None. Skipping.");
+                        continue; // Noneの場合は接続をスキップ
                     }
-                    driver.Connect(targetPort);
+                    // MacではBluetooth SPPに /dev/tty.* を使うとOS側でデッドロックやゾンビ化が発生するため、 /dev/cu.* (Call-Up)へ変換する
+                    if (selectedText.StartsWith("/dev/tty."))
+                    {
+                        selectedText = selectedText.Replace("/dev/tty.", "/dev/cu.");
+                    }
+                    targetPort = selectedText;
+                }
+
+                driver.Connect(targetPort);
+                if (!driver.IsDummyMode)
+                {
+                    selectedPorts.Add(targetPort);
                 }
             }
+            
+            // 全てのポート名が揃ったらPython UDPブリッジを起動
+            if (TSND151UdpManager.Instance != null && selectedPorts.Count > 0)
+            {
+                TSND151UdpManager.Instance.StartBridge(selectedPorts);
+            }
+
             ChangeState(AppState.Connected);
         }
 
@@ -156,6 +176,13 @@ namespace InfantPostureApp
             {
                 if (driver != null) driver.Disconnect();
             }
+
+            // Python UDPブリッジを停止
+            if (TSND151UdpManager.Instance != null)
+            {
+                TSND151UdpManager.Instance.StopBridge();
+            }
+
             ChangeState(AppState.Disconnected);
         }
 

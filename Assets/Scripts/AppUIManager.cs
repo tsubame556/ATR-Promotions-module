@@ -153,11 +153,6 @@ namespace InfantPostureApp
                         Debug.Log($"[UIManager] Sensor {i+1} port is None. Skipping.");
                         continue; // Noneの場合は接続をスキップ
                     }
-                    // MacではBluetooth SPPに /dev/tty.* を使うとOS側でデッドロックやゾンビ化が発生するため、 /dev/cu.* (Call-Up)へ変換する
-                    if (selectedText.StartsWith("/dev/tty."))
-                    {
-                        selectedText = selectedText.Replace("/dev/tty.", "/dev/cu.");
-                    }
                     targetPort = selectedText;
                 }
 
@@ -238,9 +233,9 @@ namespace InfantPostureApp
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
                 if (System.IO.Directory.Exists("/dev"))
                 {
-                    // MacではBluetooth SPPに /dev/tty.* を使うとOS側でデッドロックやゾンビ化が発生するため、 /dev/cu.* (Call-Up)を使用する
-                    string[] cuPorts = System.IO.Directory.GetFiles("/dev", "cu.TSND151*");
-                    options.AddRange(cuPorts);
+                    // Python(pyserial)を使用するため、すべてのペアリング済み機器が確実に見えるttyを使用
+                    string[] ttyPorts = System.IO.Directory.GetFiles("/dev", "tty.TSND151*");
+                    options.AddRange(ttyPorts);
                 }
 #else
                 // Windows等の場合の汎用シリアルポート取得

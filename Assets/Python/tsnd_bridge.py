@@ -19,7 +19,7 @@ def add_bcc(cmd):
     return cmd
 
 def send_cmd(ser, cmd_code, params):
-    cmd = [0x9A, cmd_code, 0] + params
+    cmd = [0x9A, cmd_code] + params
     cmd = add_bcc(cmd)
     ser.write(bytes(cmd))
     # 応答ACKを受け取ってバッファをクリア

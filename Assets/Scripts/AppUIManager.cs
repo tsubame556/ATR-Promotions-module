@@ -229,14 +229,65 @@ namespace InfantPostureApp
         public void RefreshPorts()
         {
             System.Collections.Generic.List<string> options = new System.Collections.Generic.List<string> { "None" };
+            HashSet<string> addedPorts = new HashSet<string>();
+
             try
             {
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+                // 1. /devに既に存在するポートを追加
                 if (System.IO.Directory.Exists("/dev"))
                 {
-                    // Python(pyserial)を使用するため、すべてのペアリング済み機器が確実に見えるttyを使用
                     string[] ttyPorts = System.IO.Directory.GetFiles("/dev", "tty.TSND151*");
-                    options.AddRange(ttyPorts);
+                    foreach (var p in ttyPorts)
+                    {
+                        if (addedPorts.Add(p))
+                            options.Add(p);
+                    }
+                }
+
+                // 2. system_profiler でペアリング済みBluetoothデバイスからTSND151を検出し、
+                //    /devに未出現のポートも予測生成して候補に追加する
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "/usr/sbin/system_profiler",
+                        Arguments = "SPBluetoothDataType",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true
+                    };
+                    var proc = System.Diagnostics.Process.Start(psi);
+                    string output = proc.StandardOutput.ReadToEnd();
+                    proc.WaitForExit(3000);
+
+                    // "TSND151-XXXXXXXXXX" を含む行からデバイス名を抽出
+                    var lines = output.Split('\n');
+                    foreach (var line in lines)
+                    {
+                        string trimmed = line.Trim();
+                        // system_profilerの出力でデバイス名が "TSND151-AP09182352:" のように表示される
+                        if (trimmed.Contains("TSND151"))
+                        {
+                            // "TSND151-AP09182352:" → "TSND151-AP09182352"
+                            string deviceName = trimmed.TrimEnd(':', ' ');
+                            // 余分な前後のスペースを除去
+                            deviceName = deviceName.Trim();
+                            if (deviceName.Length > 0)
+                            {
+                                string predictedPort = "/dev/tty." + deviceName;
+                                if (addedPorts.Add(predictedPort))
+                                {
+                                    options.Add(predictedPort);
+                                    Debug.Log($"[PortScan] Predicted port from paired device: {predictedPort}");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (System.Exception e2)
+                {
+                    Debug.LogWarning("[PortScan] system_profiler scan failed: " + e2.Message);
                 }
 #else
                 // Windows等の場合の汎用シリアルポート取得
@@ -244,6 +295,8 @@ namespace InfantPostureApp
 #endif
             }
             catch (System.Exception e) { Debug.LogWarning("Port scan error: " + e.Message); }
+
+            Debug.Log($"[PortScan] Found {options.Count - 1} port(s): {string.Join(", ", options)}");
 
             if (portDropdowns != null)
             {
@@ -255,10 +308,11 @@ namespace InfantPostureApp
                         dropdown.ClearOptions();
                         dropdown.AddOptions(options);
 
-                        // 見つかったポートがあれば、Sensor 1は自動的に最初のポートを選択する（利便性のため）
-                        if (i == 0 && options.Count > 1)
+                        // 見つかったポートの数がセンサの台数と一致する場合は自動で割り当てる
+                        // (options[0]="None", options[1]=port1, options[2]=port2, ...)
+                        if (options.Count > i + 1)
                         {
-                            dropdown.value = 1;
+                            dropdown.value = i + 1;
                         }
                     }
                 }

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
@@ -29,11 +30,12 @@ namespace InfantPostureApp
         public Button btnStartRecord;
         public Button btnStopRecord;
         public Button btnExportCSV;
-        public InputField[] portInputs;
 
         [Header("UI Displays")]
         public Text txtTableData;
         public Text[] txtStatusBars;
+        public Dropdown[] portDropdowns; // 変更: InputFieldからDropdownへ
+        public Button btnRefreshPorts;   // 追加: ポート再走査ボタン
 
         [Header("Toast Notification")]
         public RectTransform toastPanel;
@@ -69,6 +71,12 @@ namespace InfantPostureApp
 
             if (btnExportCSV != null)
                 btnExportCSV.onClick.AddListener(OnExportCSVClicked);
+
+            if (btnRefreshPorts != null)
+                btnRefreshPorts.onClick.AddListener(RefreshPorts);
+
+            // 起動時に現在のポート一覧を取得してドロップダウンに反映
+            RefreshPorts();
 
             // 初期状態の適用
             if (toastPanel != null) toastPanel.gameObject.SetActive(false);
@@ -165,7 +173,7 @@ namespace InfantPostureApp
             {
                 TSND151UdpManager.Instance.StartBridge(selectedPorts);
             }
-
+            
             ChangeState(AppState.Connected);
         }
 
@@ -218,6 +226,45 @@ namespace InfantPostureApp
                 else
                 {
                     ShowToast("保存に失敗しました");
+                }
+            }
+        }
+
+        public void RefreshPorts()
+        {
+            System.Collections.Generic.List<string> options = new System.Collections.Generic.List<string> { "None" };
+            try
+            {
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+                if (System.IO.Directory.Exists("/dev"))
+                {
+                    // MacではBluetooth SPPに /dev/tty.* を使うとOS側でデッドロックやゾンビ化が発生するため、 /dev/cu.* (Call-Up)を使用する
+                    string[] cuPorts = System.IO.Directory.GetFiles("/dev", "cu.TSND151*");
+                    options.AddRange(cuPorts);
+                }
+#else
+                // Windows等の場合の汎用シリアルポート取得
+                options.AddRange(System.IO.Ports.SerialPort.GetPortNames());
+#endif
+            }
+            catch (System.Exception e) { Debug.LogWarning("Port scan error: " + e.Message); }
+
+            if (portDropdowns != null)
+            {
+                for (int i = 0; i < portDropdowns.Length; i++)
+                {
+                    var dropdown = portDropdowns[i];
+                    if (dropdown != null)
+                    {
+                        dropdown.ClearOptions();
+                        dropdown.AddOptions(options);
+
+                        // 見つかったポートがあれば、Sensor 1は自動的に最初のポートを選択する（利便性のため）
+                        if (i == 0 && options.Count > 1)
+                        {
+                            dropdown.value = 1;
+                        }
+                    }
                 }
             }
         }

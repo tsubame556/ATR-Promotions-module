@@ -82,13 +82,14 @@ namespace InfantPostureApp
 
         /// <summary>
         /// 記録済みデータをCSV形式でエクスポートする
+        /// 成功した場合は保存先パスを返し、失敗時はnullを返す
         /// </summary>
-        public void ExportCSV()
+        public string ExportCSV()
         {
             if (_recordedData.Count == 0)
             {
                 Debug.LogWarning("No data to export.");
-                return;
+                return null;
             }
 
             try
@@ -134,11 +135,12 @@ namespace InfantPostureApp
                 File.WriteAllText(filePath, sb.ToString());
                 Debug.Log($"CSV Exported to: {filePath}");
                 
-                // グラフ画像の保存機能も必要に応じて追記する
+                return filePath;
             }
             catch (Exception e)
             {
                 Debug.LogError($"CSV Export Failed: {e.Message}");
+                return null;
             }
         }
     }

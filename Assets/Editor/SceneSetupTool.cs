@@ -181,6 +181,36 @@ namespace InfantPostureApp.Editor
                 uiManager.txtStatusBars[i].alignment = TextAnchor.MiddleLeft;
             }
 
+            // --- Toast Notification Panel ---
+            GameObject toastObj = new GameObject("ToastPanel");
+            toastObj.transform.SetParent(canvasObj.transform);
+            RectTransform toastRect = toastObj.AddComponent<RectTransform>();
+            toastRect.anchorMin = new Vector2(0.5f, 1);
+            toastRect.anchorMax = new Vector2(0.5f, 1);
+            toastRect.pivot = new Vector2(0.5f, 1);
+            toastRect.anchoredPosition = new Vector2(0, -60);
+            toastRect.sizeDelta = new Vector2(400, 50);
+
+            Image toastImg = toastObj.AddComponent<Image>();
+            toastImg.sprite = roundedSprite;
+            toastImg.type = Image.Type.Sliced;
+            toastImg.color = new Color(0.1f, 0.1f, 0.1f, 0.95f);
+
+            var toastGroup = toastObj.AddComponent<CanvasGroup>();
+            toastGroup.alpha = 0f;
+            toastGroup.blocksRaycasts = false;
+
+            Text tText = CreateText(toastObj.transform, "Notification", colorTextPrimary, 16);
+            tText.alignment = TextAnchor.MiddleCenter;
+            var tRect = tText.GetComponent<RectTransform>();
+            tRect.anchorMin = Vector2.zero; tRect.anchorMax = Vector2.one;
+            tRect.offsetMin = Vector2.zero; tRect.offsetMax = Vector2.zero;
+            Object.DestroyImmediate(tText.GetComponent<ContentSizeFitter>()); // 固定枠のため外す
+
+            uiManager.toastPanel = toastRect;
+            uiManager.toastText = tText;
+            uiManager.toastCanvasGroup = toastGroup;
+
             Debug.Log("Apple-Style Scene Setup Complete! UI has been beautifully aligned and generated.");
         }
 

@@ -33,8 +33,11 @@ namespace InfantPostureApp
         // メインスレッドにデータを渡すためのスレッドセーフなキュー
         public ConcurrentQueue<SensorData> DataQueue = new ConcurrentQueue<SensorData>();
 
+        // ダミーモード用フラグ
+        public bool IsDummyMode = false;
+
         // ステータスプロパティ
-        public bool IsConnected => _serialPort != null && _serialPort.IsOpen;
+        public bool IsConnected => (_serialPort != null && _serialPort.IsOpen) || IsDummyMode;
         public int CurrentBatteryLevel { get; private set; } = 100;
         public string ConnectionStatus { get; private set; } = "Disconnected";
 
@@ -46,6 +49,14 @@ namespace InfantPostureApp
             if (IsConnected) return;
 
             portName = port;
+            
+            if (IsDummyMode)
+            {
+                ConnectionStatus = "Connected (Dummy)";
+                Debug.Log($"[Sensor {sensorId}] Connected in Dummy Mode.");
+                return;
+            }
+
             try
             {
                 // Mac/Mono環境でのシリアル通信設定

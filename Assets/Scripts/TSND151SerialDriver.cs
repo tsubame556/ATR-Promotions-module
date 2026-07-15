@@ -41,6 +41,9 @@ namespace InfantPostureApp
         public int CurrentBatteryLevel { get; private set; } = 100;
         public string ConnectionStatus { get; private set; } = "Disconnected";
 
+        // 最新の回転データ（他スクリプトから参照可能）
+        public Quaternion Rotation { get; set; } = Quaternion.identity;
+
         /// <summary>
         /// 指定したポートで接続を開始する
         /// </summary>

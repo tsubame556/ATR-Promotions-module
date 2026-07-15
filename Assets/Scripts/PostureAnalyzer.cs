@@ -65,6 +65,7 @@ namespace InfantPostureApp
                 while (driver.DataQueue.TryDequeue(out SensorData data))
                 {
                     _latestRotations[data.SensorId] = data.Rotation;
+                    driver.Rotation = data.Rotation;
 
                     // Indicator（3D上の球体など）が存在すれば回転を適用
                     if (SensorIndicators.TryGetValue(data.SensorId, out Transform indicator))

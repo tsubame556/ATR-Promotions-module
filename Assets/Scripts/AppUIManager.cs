@@ -295,7 +295,9 @@ namespace InfantPostureApp
                             string deviceName = trimmed.TrimEnd(':', ' ').Trim();
                             if (deviceName.Length > 0)
                             {
-                                string fullPath = "/dev/tty." + deviceName;
+                                // macOSではBluetooth SPP発信側は /dev/cu.* を使用する
+                                // /dev/tty.* はDCD信号待ちでブロックされACKタイムアウトの原因となる
+                                string fullPath = "/dev/cu." + deviceName;
                                 if (addedPorts.Add(fullPath))
                                 {
                                     options.Add(deviceName);

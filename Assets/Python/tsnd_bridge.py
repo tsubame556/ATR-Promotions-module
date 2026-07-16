@@ -298,7 +298,9 @@ def connection_manager(sensor_specs, serials, threads):
             
             try:
                 # タイムアウトを少し長めにしてRFCOMM確立を確実にする
-                ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0)
+                # rtscts/dsrdtr を無効化しハードウェアフロー制御によるブロッキングを防止
+                ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0,
+                                    rtscts=False, dsrdtr=False)
                 time.sleep(1.5)
             except Exception as e:
                 print(f"[Bridge] Error opening port for Sensor {sensor_id}: {e}", file=sys.stderr)

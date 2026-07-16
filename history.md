@@ -15,3 +15,7 @@
   - `AppUIManager.cs`: 記録開始/停止ボタンと連動し、全センサーの計測を同時開始・同時停止するよう改善。
 - **スタンバイ時のUIステータス表示修正**
   - 計測データが届かないスタンバイ状態でも、Python側からの`initialized successfully`メッセージを検知し、UIのステータスバーを緑色(Connected)にするよう修正。
+- **【根本原因修正】シリアルポートを /dev/tty.* → /dev/cu.* に変更**
+  - macOSでは `/dev/tty.*` はDCD（Data Carrier Detect）信号を待つためシリアル通信がブロックされ、全てのACKがタイムアウトしていた。
+  - Bluetooth SPPの発信側接続では `/dev/cu.*` を使う必要があるため、`AppUIManager.cs` のポート生成ロジックを修正。
+  - `tsnd_bridge.py` の `serial.Serial` に `rtscts=False, dsrdtr=False` を明示的に指定し、ハードウェアフロー制御によるブロッキングも防止。

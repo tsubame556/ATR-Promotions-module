@@ -97,6 +97,8 @@ namespace InfantPostureApp
                     _latestRotations[data.SensorId] = data.Rotation;
                     LatestSensorData[data.SensorId] = data; // 生データを保持
                     driver.Rotation = data.Rotation;
+                    driver.Acceleration = data.Acceleration;
+                    driver.Gyroscope = data.Gyroscope;
 
                     // Indicator（3D上の球体など）が存在すれば回転を適用
                     foreach (var mapping in SensorIndicators)

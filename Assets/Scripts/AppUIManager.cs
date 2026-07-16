@@ -365,6 +365,8 @@ namespace InfantPostureApp
                     float ry = e.y > 180 ? e.y - 360 : e.y;
                     float rz = e.z > 180 ? e.z - 360 : e.z;
                     sb.AppendLine($"Sensor {driver.sensorId}: R={rx:F1}° P={ry:F1}° Y={rz:F1}°");
+                    sb.AppendLine($"  Acc: {driver.Acceleration.x:F2}, {driver.Acceleration.y:F2}, {driver.Acceleration.z:F2}");
+                    sb.AppendLine($"  Gyr: {driver.Gyroscope.x:F1}, {driver.Gyroscope.y:F1}, {driver.Gyroscope.z:F1}");
                 }
             }
             if (!hasConnected) sb.AppendLine("No sensors connected.");

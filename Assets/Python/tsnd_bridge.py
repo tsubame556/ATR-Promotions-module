@@ -19,115 +19,6 @@ UDP_PORT = 5000
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 is_running = True
 
-
-# ============================================================
-# macOS Bluetooth SPP 自動接続 (IOBluetooth Swift ヘルパー使用)
-# ============================================================
-
-def get_bluetooth_address(device_name):
-    """system_profilerからデバイス名に対応するMACアドレスを取得する"""
-    try:
-        output = subprocess.check_output(
-            ['/usr/sbin/system_profiler', 'SPBluetoothDataType'],
-            timeout=10
-        ).decode('utf-8', errors='replace')
-        
-        lines = output.split('\n')
-        found = False
-        for line in lines:
-            stripped = line.strip()
-            if device_name in stripped:
-                found = True
-                continue
-            if found and 'Address:' in stripped:
-                addr = stripped.split('Address:')[1].strip()
-                return addr
-    except Exception as e:
-        print(f"  [BT] system_profiler error: {e}", file=sys.stderr)
-    return None
-
-
-def get_helper_path():
-    """Swiftヘルパーバイナリのパスを取得し、未コンパイルなら自動コンパイルする"""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    helper_bin = os.path.join(script_dir, "bt_connect_helper")
-    helper_src = os.path.join(script_dir, "bt_connect_helper.swift")
-    
-    # バイナリが存在しない、またはソースより古い場合はコンパイル
-    if not os.path.exists(helper_bin) or \
-       (os.path.exists(helper_src) and os.path.getmtime(helper_src) > os.path.getmtime(helper_bin)):
-        print("  [BT] Compiling Swift Bluetooth helper...", file=sys.stderr)
-        try:
-            result = subprocess.run(
-                ['swiftc', '-o', helper_bin, helper_src,
-                 '-framework', 'IOBluetooth', '-framework', 'Foundation'],
-                capture_output=True, text=True, timeout=60
-            )
-            if result.returncode != 0:
-                print(f"  [BT] Compile failed: {result.stderr}", file=sys.stderr)
-                return None
-            print("  [BT] Compile successful.", file=sys.stderr)
-        except Exception as e:
-            print(f"  [BT] Compile error: {e}", file=sys.stderr)
-            return None
-    
-    return helper_bin
-
-
-def ensure_bluetooth_connected(port_path):
-    """
-    macOSでBluetooth SPPデバイスの/devファイルが未出現の場合、
-    IOBluetooth Swiftヘルパーを使用してACL接続 + SDP + RFCOMM接続を行い、
-    /dev/ttyファイルを確実に生成する
-    """
-    if os.path.exists(port_path):
-        print(f"  [BT] Port {port_path} already exists.", file=sys.stderr)
-        return True
-    
-    # デバイス名を抽出: /dev/tty.TSND151-AP09182352 → TSND151-AP09182352
-    device_name = os.path.basename(port_path).replace("tty.", "")
-    print(f"  [BT] Port {port_path} not found. Connecting {device_name}...", file=sys.stderr)
-    
-    # MACアドレスを取得
-    mac_address = get_bluetooth_address(device_name)
-    if not mac_address:
-        print(f"  [BT] Could not find MAC address for {device_name}.", file=sys.stderr)
-        return False
-    
-    print(f"  [BT] MAC={mac_address}. Using IOBluetooth helper...", file=sys.stderr)
-    
-    # Swiftヘルパーバイナリを取得
-    helper_bin = get_helper_path()
-    if not helper_bin:
-        print("  [BT] Swift helper not available.", file=sys.stderr)
-        return False
-    
-    # ヘルパーを実行（ACL接続 + SDP + RFCOMM → /dev/tty 生成を待つ）
-    try:
-        result = subprocess.run(
-            [helper_bin, mac_address, port_path],
-            capture_output=True, text=True, timeout=45
-        )
-        # stdoutに "OK" が含まれていれば成功
-        stdout_line = result.stdout.strip()
-        # stderrのログを表示
-        for line in result.stderr.strip().split('\n'):
-            if line:
-                print(f"  {line}", file=sys.stderr)
-        
-        if stdout_line == "OK":
-            print(f"  [BT] Successfully connected {device_name}!", file=sys.stderr)
-            return True
-        else:
-            print(f"  [BT] Helper returned: {stdout_line}", file=sys.stderr)
-            return False
-    except subprocess.TimeoutExpired:
-        print(f"  [BT] Helper timed out for {device_name}.", file=sys.stderr)
-        return False
-    except Exception as e:
-        print(f"  [BT] Helper error: {e}", file=sys.stderr)
-        return False
-
 # 公式仕様に準拠したレスポンスパラメータ長マップ
 RESPONSE_ARG_LEN = {
     0x8F: 1,   # simple ACK
@@ -179,7 +70,6 @@ RESPONSE_ARG_LEN = {
     0xDD: 1,
 }
 
-
 def build_cmd(cmd_code, args):
     """公式仕様に完全準拠したコマンド構築"""
     total_cmd = [0x9A, cmd_code]
@@ -194,14 +84,12 @@ def build_cmd(cmd_code, args):
     total_cmd.append(bcc)
     return bytes(total_cmd)
 
-
 def send_cmd(ser, cmd_code, args, label=""):
     """コマンドを送信し、ACK応答を待つ"""
     packet = build_cmd(cmd_code, args)
     ser.write(packet)
     ser.flush()
     print(f"  [CMD] Sent 0x{cmd_code:02X} ({label}): {packet.hex()}", file=sys.stderr)
-    
 
 def wait_for_ack(ser, timeout=2.0):
     """ACK(0x8F)応答を待つ。返却値: (成功したか, 応答バイト列)"""
@@ -210,137 +98,126 @@ def wait_for_ack(ser, timeout=2.0):
     while time.time() - start < timeout:
         if ser.in_waiting > 0:
             buf.extend(ser.read(ser.in_waiting))
-        # 0x9Aヘッダを探す
         while len(buf) >= 2:
             if buf[0] == 0x9A:
                 cmd = buf[1]
                 if cmd in RESPONSE_ARG_LEN:
-                    expected_len = 2 + RESPONSE_ARG_LEN[cmd] + 1  # header+cmd+params+bcc
+                    expected_len = 2 + RESPONSE_ARG_LEN[cmd] + 1
                     if len(buf) >= expected_len:
                         pkt = buf[:expected_len]
                         buf = buf[expected_len:]
-                        # BCC検証
                         bcc = 0
                         for b in pkt[:-1]:
                             bcc ^= b
                         if bcc == pkt[-1]:
                             if cmd == 0x8F:
-                                result = pkt[2]  # 0x00=OK, 0x01=NG
+                                result = pkt[2]
                                 print(f"  [ACK] 0x8F result=0x{result:02X} {'OK' if result == 0 else 'NG'}", file=sys.stderr)
                                 return result == 0x00, pkt
                             else:
-                                # ACK以外のレスポンス（0x93等）は消費して続行
                                 print(f"  [RSP] 0x{cmd:02X} received (non-ACK)", file=sys.stderr)
                                 continue
                         else:
-                            buf = buf[1:]  # BCC不一致、1バイト進む
+                            buf = buf[1:]
                     else:
-                        break  # データ不足、待つ
+                        break
                 else:
-                    buf = buf[1:]  # 未知のコマンド、1バイト進む
+                    buf = buf[1:]
             else:
-                buf = buf[1:]  # ヘッダでない、1バイト進む
+                buf = buf[1:]
         time.sleep(0.01)
     print(f"  [ACK] Timeout waiting for ACK", file=sys.stderr)
     return False, None
 
-
 def init_sensor(ser):
-    """公式ライブラリの手順に準拠したセンサ初期化"""
-    # 0. まず以前の計測が動いたままになっている場合を考慮してストップコマンドを送る
-    send_cmd(ser, 0x15, [0x00], "force_stop")
+    """公式ライブラリの手順に準拠したセンサ初期化。"""
+    # 以前のゾンビ状態のパケットを破棄する
+    try:
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+    except Exception:
+        pass
     time.sleep(0.5)
-    
-    # バッファをクリア
+
+    print("  [CMD] Waking up sensor with force_stop...", file=sys.stderr)
+    awake = False
+    for _ in range(3):
+        send_cmd(ser, 0x15, [0x00], "force_stop")
+        ok, _ = wait_for_ack(ser, timeout=1.5)
+        if ok:
+            awake = True
+            break
+        time.sleep(0.5)
+        
+    if not awake:
+        print("  [WARN] Sensor did not respond to initial wake up (force_stop).", file=sys.stderr)
+        return False
+        
     ser.reset_input_buffer()
     time.sleep(0.1)
     
-    # 1. 時刻設定 (0x11)
     send_cmd(ser, 0x11, [26, 7, 15, 12, 0, 0, 0, 0], "set_time")
     ok, _ = wait_for_ack(ser)
     if not ok:
         print("  [WARN] set_time ACK failed", file=sys.stderr)
+        return False
     time.sleep(0.1)
     
-    # 2. 加速度・角速度設定 (0x16) [OFFにする]
-    # 公式仕様: クォータニオン(0x55)を利用する場合は0x16と競合するため0を指定してOFFにする
     send_cmd(ser, 0x16, [0, 0, 0], "set_acc_gyro_interval_off")
     ok, _ = wait_for_ack(ser)
-    if not ok:
-        print("  [WARN] set_acc_gyro_interval ACK failed", file=sys.stderr)
     time.sleep(0.1)
     
-    # 3. クォータニオン設定 (0x55) [周期10ms, 送信1回, 記録0回]
     send_cmd(ser, 0x55, [10, 1, 0], "set_quaternion_interval")
     ok, _ = wait_for_ack(ser)
-    if not ok:
-        print("  [WARN] set_quaternion_interval ACK failed", file=sys.stderr)
     time.sleep(0.1)
     
-    # 4. 計測開始 (0x13) - 公式仕様: 即時開始 + 永久実行
-    start_flag = [0, 0, 1, 1, 0, 0, 0,   # 即時開始 (秒=0で即時)
-                  0, 0, 1, 1, 0, 0, 0]    # 永久実行
+    start_flag = [0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0]
     send_cmd(ser, 0x13, start_flag, "start_recording")
-    # 0x13は0x93(recording_time_settings)と0x88(start_recording)を返す
-    # これらを消費する
     time.sleep(0.5)
     if ser.in_waiting > 0:
         resp = ser.read(ser.in_waiting)
         print(f"  [RSP] start response: {resp.hex()}", file=sys.stderr)
-
+    return True
 
 def stop_sensor(ser):
-    """計測停止"""
     send_cmd(ser, 0x15, [0x00], "stop")
     time.sleep(0.3)
     if ser.in_waiting > 0:
         ser.read(ser.in_waiting)
 
-
 def read_loop(ser, sensor_id):
-    """公式仕様に準拠したパケット受信ループ"""
     buf = bytearray()
     data_count = 0
-    
     while is_running:
         try:
             if ser.in_waiting > 0:
-                new_data = ser.read(ser.in_waiting)
-                buf.extend(new_data)
+                buf.extend(ser.read(ser.in_waiting))
             
-            # パケット解析（公式と同じ方式：ヘッダを探し→コマンドコードで長さを確定→BCC検証）
             while len(buf) >= 2:
-                # 0x9Aヘッダを探す
                 if buf[0] != 0x9A:
                     buf = buf[1:]
                     continue
-                
                 cmd = buf[1]
                 if cmd not in RESPONSE_ARG_LEN:
                     buf = buf[1:]
                     continue
                 
-                expected_len = 2 + RESPONSE_ARG_LEN[cmd] + 1  # header+cmd+params+bcc
+                expected_len = 2 + RESPONSE_ARG_LEN[cmd] + 1
                 if len(buf) < expected_len:
-                    break  # データ不足、次の受信を待つ
+                    break
                 
                 pkt = buf[:expected_len]
-                
-                # BCC検証
                 bcc = 0
                 for b in pkt[:-1]:
                     bcc ^= b
                 if bcc != pkt[-1]:
-                    buf = buf[1:]  # BCC不一致、1バイト進んでリトライ
+                    buf = buf[1:]
                     continue
                 
-                # 有効なパケット
                 buf = buf[expected_len:]
                 
-                # 0x8A: クォータニオン+加速度+ジャイロ データ → UDPでUnityに転送
                 if cmd == 0x8A:
-                    params = pkt[2:-1]  # パラメータ部分（30バイト）
-                    # sensor_id(1バイト) + パラメータ全体(30バイト) をUDP送信
+                    params = pkt[2:-1]
                     udp_payload = bytes([sensor_id]) + params
                     sock.sendto(udp_payload, (UDP_IP, UDP_PORT))
                     data_count += 1
@@ -349,18 +226,113 @@ def read_loop(ser, sensor_id):
             
             if ser.in_waiting == 0:
                 time.sleep(0.005)
-                
         except Exception as e:
             print(f"[Bridge] Error on sensor {sensor_id}: {e}", file=sys.stderr)
             break
 
+def force_mac_connection(port_path):
+    import subprocess
+    dev_name = port_path.split('.')[-1]
+    try:
+        out = subprocess.check_output(["/usr/sbin/system_profiler", "SPBluetoothDataType"], text=True)
+        lines = out.split('\n')
+        mac = None
+        for i, line in enumerate(lines):
+            if dev_name in line:
+                for j in range(1, 6):
+                    if i+j < len(lines) and "Address:" in lines[i+j]:
+                        mac = lines[i+j].split("Address:")[1].strip()
+                        break
+                break
+        if mac:
+            print(f"[Bridge] Auto-connecting {dev_name} ({mac}) via blueutil...", file=sys.stderr)
+            blueutil_path = "/opt/homebrew/bin/blueutil"
+            if not os.path.exists(blueutil_path):
+                blueutil_path = "blueutil"
+            
+            # Increase timeout to 10s because Mac Bluetooth can be very slow when connecting multiple devices sequentially
+            try:
+                res = subprocess.run([blueutil_path, "--connect", mac], timeout=10, capture_output=True, text=True)
+                if res.returncode != 0:
+                    print(f"[Bridge] blueutil connect failed for {dev_name}: {res.stderr.strip()}", file=sys.stderr)
+            except subprocess.TimeoutExpired:
+                print(f"[Bridge] blueutil connect timeout for {dev_name}", file=sys.stderr)
+                
+            # Wait up to 5 seconds for the port to be created by macOS
+            for _ in range(25):
+                if os.path.exists(port_path):
+                    return True
+                time.sleep(0.2)
+                
+            print(f"[Bridge] Port {port_path} still missing after blueutil.", file=sys.stderr)
+            return False
+    except Exception as e:
+        print(f"[Bridge] force_mac_connection error for {dev_name}: {e}", file=sys.stderr)
+    return False
+
+def connection_manager(sensor_specs, serials, threads):
+    unconnected = list(sensor_specs)
+    
+    while is_running and unconnected:
+        still_unconnected = []
+        for sensor_id, port in unconnected:
+            if not is_running:
+                break
+                
+            print(f"[Bridge] Connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
+            
+            if not os.path.exists(port):
+                # ポートが存在しない場合、MacのBluetoothが切断状態になっているのでblueutilで強制接続を試みる
+                if not force_mac_connection(port):
+                    print(f"[Bridge] SKIPPED Sensor {sensor_id}: Port {port} does not exist.", file=sys.stderr)
+                    still_unconnected.append((sensor_id, port))
+                    continue
+            
+            try:
+                # タイムアウトを少し長めにしてRFCOMM確立を確実にする
+                ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0)
+                time.sleep(1.5)
+            except Exception as e:
+                print(f"[Bridge] Error opening port for Sensor {sensor_id}: {e}", file=sys.stderr)
+                still_unconnected.append((sensor_id, port))
+                continue
+                
+            print(f"[Bridge] Initializing Sensor {sensor_id}...", file=sys.stderr)
+            init_success = False
+            for attempt in range(3):
+                if not is_running:
+                    break
+                if init_sensor(ser):
+                    init_success = True
+                    break
+                print(f"[Bridge] Sensor {sensor_id} init attempt {attempt+1} failed. Retrying...", file=sys.stderr)
+                time.sleep(2)
+                
+            if init_success:
+                print(f"[Bridge] Sensor {sensor_id} initialized successfully.", file=sys.stderr)
+                serials.append((sensor_id, ser))
+                t = threading.Thread(target=read_loop, args=(ser, sensor_id), daemon=True)
+                t.start()
+                threads.append(t)
+            else:
+                print(f"[Bridge] Sensor {sensor_id} init permanently failed. Will retry next loop.", file=sys.stderr)
+                ser.close()
+                still_unconnected.append((sensor_id, port))
+                
+        unconnected = still_unconnected
+        if unconnected and is_running:
+            print("[Bridge] Retrying unconnected sensors in 5 seconds...", file=sys.stderr)
+            for _ in range(50):
+                if not is_running:
+                    break
+                time.sleep(0.1)
+
+    print("[Bridge] Connection manager finished. All target sensors are connected.", file=sys.stderr)
 
 def main():
     global is_running
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sensors', nargs='+', 
-                        help='List of id:port pairs, e.g. "1:/dev/tty.TSND151-xxx"')
-    # 後方互換: 古い --ports 引数もサポート
+    parser.add_argument('--sensors', nargs='+', help='List of id:port pairs')
     parser.add_argument('--ports', nargs='+', help='(Legacy) List of serial ports')
     args = parser.parse_args()
 
@@ -381,34 +353,10 @@ def main():
     threads = []
     serials = []
 
-    for sensor_id, port in sensor_specs:
-        print(f"[Bridge] Connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
-        try:
-            # macOS: /devファイルが存在しない場合はBluetoothを自動接続
-            if not ensure_bluetooth_connected(port):
-                print(f"[Bridge] SKIPPED Sensor {sensor_id}: Bluetooth connection failed.", file=sys.stderr)
-                continue
-            
-            # 公式仕様に準拠: timeout=0.01(10ms)、DTR/RTS設定なし
-            ser = serial.Serial(port, 115200, timeout=0.01)
-            time.sleep(2)  # 公式と同じ: 接続安定のため2秒待機
-            serials.append((sensor_id, ser))
-            
-            print(f"[Bridge] Initializing Sensor {sensor_id}...", file=sys.stderr)
-            init_sensor(ser)
-            print(f"[Bridge] Sensor {sensor_id} initialized successfully.", file=sys.stderr)
-            
-            t = threading.Thread(target=read_loop, args=(ser, sensor_id), daemon=True)
-            t.start()
-            threads.append(t)
-        except Exception as e:
-            print(f"[Bridge] FAILED to connect {port}: {e}", file=sys.stderr)
+    cm_thread = threading.Thread(target=connection_manager, args=(sensor_specs, serials, threads), daemon=True)
+    cm_thread.start()
 
-    if not serials:
-        print("[Bridge] No sensors connected. Exiting.", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"[Bridge] {len(serials)} sensor(s) running. Waiting for stdin EOF...", file=sys.stderr)
+    print(f"[Bridge] Connection manager started in background. Waiting for stdin EOF...", file=sys.stderr)
     sys.stderr.flush()
     
     try:
@@ -421,15 +369,25 @@ def main():
 
     print("[Bridge] Shutting down...", file=sys.stderr)
     is_running = False
-    for sensor_id, ser in serials:
+    
+    def _close_ser(sid, s):
         try:
-            stop_sensor(ser)
-            ser.close()
-            print(f"[Bridge] Sensor {sensor_id} closed.", file=sys.stderr)
+            stop_sensor(s)
+            s.close()
+            print(f"[Bridge] Sensor {sid} closed.", file=sys.stderr)
         except:
             pass
-    print("[Bridge] Exited cleanly.", file=sys.stderr)
 
+    shutdown_threads = []
+    for sensor_id, ser in serials:
+        st = threading.Thread(target=_close_ser, args=(sensor_id, ser))
+        st.start()
+        shutdown_threads.append(st)
+        
+    for st in shutdown_threads:
+        st.join(timeout=3.0)
+
+    print("[Bridge] Exited cleanly.", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

@@ -47,6 +47,8 @@ namespace InfantPostureApp
 
         // 最新の回転データ（他スクリプトから参照可能）
         public Quaternion Rotation { get; set; } = Quaternion.identity;
+        public Vector3 Acceleration { get; set; } = Vector3.zero;
+        public Vector3 Gyroscope { get; set; } = Vector3.zero;
 
         private float _lastDataTime = 0f;
         private volatile bool _hasNewData = false;

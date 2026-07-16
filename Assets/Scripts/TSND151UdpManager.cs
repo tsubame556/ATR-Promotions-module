@@ -122,7 +122,7 @@ namespace InfantPostureApp
                 try
                 {
                     _pythonProcess.StandardInput.Close();
-                    _pythonProcess.WaitForExit(2000);
+                    _pythonProcess.WaitForExit(8000);
                     if (!_pythonProcess.HasExited)
                     {
                         _pythonProcess.Kill();

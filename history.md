@@ -1,15 +1,11 @@
-# 作業履歴
+# プロジェクト作業履歴 (Infant Posture App)
 
-- 2026-07-15: 新規公開リポジトリ「ATR-Promotions-module」の作業ディレクトリ作成およびGit初期化。
-- 2026-07-15: 3D乳幼児姿勢計測Unityアプリケーションの実装計画策定。
-- 2026-07-15: コアC#スクリプトの実装（TSND151SerialDriver, PostureAnalyzer, DataManager, RealtimeGraphController）。
-- 2026-07-15: アプリ実行可能化のための追加実装（ダミーセンサ、UIマネージャ、エディタ自動構築ツール）。
-- 2026-07-15: Appleの「設定」アプリ風モダンUI（自動レイアウト、プロシージャル角丸、フォント調整）への全面改修。
-- 2026-07-15: ボタンの状態遷移（ステートマシン）およびCSV保存完了時のトースト通知（ポップアップ）を実装。
-- 2026-07-15: 3Dモデル（アバター）との連動機能、およびRenderTextureを用いたUIへの埋め込み表示を実装。
-- 2026-07-15: glTFastパッケージの導入、および互換性の高い標準的な3Dモデル（CesiumMan.glb）への差し替え対応。
-- 2026-07-15: 実機センサ（TSND151）とのBluetooth SPP接続に向けたシリアル通信機能の強化（汎用フレーミング）、およびUI上のポート設定枠（最大5台）を追加。
-- 2026-07-15: Mac版Unity(Mono)のSerialPortバグを回避するため、Python UDPブリッジ方式へ通信アーキテクチャを刷新。
-- 2026-07-15: eno-lab/tsnd公式ライブラリの仕様に完全準拠してPythonブリッジ(tsnd_bridge.py)を全面書き直し。コマンドフォーマット、ACKハンドリング、0x8Aパケット解析オフセット、start_recordingパラメータを正確に修正。sensorIdのマッピングを明示化し、UIステータス表示の色分け(灰→黄→緑→赤)を改善。
-- 2026-07-15: TSND151UdpManagerのバックグラウンド受信スレッドからUnity API（Time.time）を呼び出していたことによるエラーとフリーズを修正。フラグ管理によりメインスレッドのUpdate()で処理するよう改善。
-- 2026-07-16: ポートスキャン機能を強化。macOSではsystem_profilerコマンドでペアリング済みBluetoothデバイスを検出し、/devにデバイスファイルが未出現のセンサも予測ポート名で候補に表示するよう改善。3台分のドロップダウン自動割り当ても実装。
+## 2026-07-16
+- **OrbitCamera の入力システム修正**
+  - Legacy Input (`Input.GetMouseButton`等) から 新しい Input System (`UnityEngine.InputSystem`) へ切り替え。マウスのドラッグによる回転、ホイールによるズームに対応。
+- **TSND151接続安定性の劇的な向上 (Pythonブリッジ)**
+  - Mac特有のゴーストポートバグ対策として、`system_profiler` から MACアドレスを抽出し、ポートが存在しない場合は `blueutil --connect` を用いてPythonからMacのBluetooth制御を強制実行する自己修復メカニズム (`force_mac_connection`) を実装。
+  - `blueutil` のタイムアウトを10秒に延長し、複数センサーの連続接続時の遅延に対応。
+  - センサー通信開始時 (`init_sensor`) に `ser.reset_input_buffer()` と `ser.reset_output_buffer()` を実行し、前回の強制終了によって残存したゾンビデータによる `force_stop` タイムアウトバグを解消。
+- **UI表示名からデバイスパスへの対応**
+  - `AppUIManager.cs` にて、ユーザーに見やすい短縮名（TSND151-AP...）から実際のシステムパス（/dev/tty...）への変換辞書 (`_portDisplayToFullPath`) を導入。

@@ -43,6 +43,9 @@ namespace InfantPostureApp
         {
             if (_isRunning) StopBridge();
 
+            // 残留するtsnd_bridgeプロセスを確実にkill（ゾンビプロセスによるシリアルポートロック防止）
+            KillOrphanedBridgeProcesses();
+
             if (sensorMappings == null || sensorMappings.Count == 0) return;
 
             // sensorId:port 形式の引数を構築
@@ -268,9 +271,42 @@ namespace InfantPostureApp
             return value;
         }
 
+        /// <summary>
+        /// 残留するtsnd_bridgeプロセスを全てkillする
+        /// Unityエディタでの再生停止時にPythonプロセスが残ることがあるため、
+        /// 新しいブリッジ起動前に確実にクリーンアップする
+        /// </summary>
+        private void KillOrphanedBridgeProcesses()
+        {
+            try
+            {
+                var killPsi = new ProcessStartInfo
+                {
+                    FileName = "/usr/bin/pkill",
+                    Arguments = "-f tsnd_bridge.py",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                var killProc = Process.Start(killPsi);
+                killProc.WaitForExit(3000);
+                
+                // ポートが解放されるまで少し待つ
+                System.Threading.Thread.Sleep(1000);
+                Debug.Log("[UDPManager] Killed orphaned tsnd_bridge processes (if any).");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[UDPManager] Failed to kill orphaned processes: {e.Message}");
+            }
+        }
+
         private void OnDestroy()
         {
             StopBridge();
+            // OnDestroy後もプロセスが残る可能性があるため最終手段としてpkill
+            KillOrphanedBridgeProcesses();
         }
     }
 }

@@ -20,3 +20,6 @@
   - Bluetooth SPPの発信側接続では `/dev/cu.*` を使う必要があるため、`AppUIManager.cs` のポート生成ロジックを修正。
   - `tsnd_bridge.py` の `serial.Serial` に `rtscts=False, dsrdtr=False` を明示的に指定し、ハードウェアフロー制御によるブロッキングも防止。
   - Part 1 のポートスキャン（`/dev/`直接スキャン）も `tty.TSND151*` → `cu.TSND151*` に変更し、Part 2（system_profiler予測）との重複登録（同じセンサーが2回ドロップダウンに表示される問題）を解消。
+- **ゾンビプロセス対策とBluetooth接続リセット**
+  - `TSND151UdpManager.cs`: `StartBridge`開始時と`OnDestroy`時に`pkill -f tsnd_bridge.py`を実行し、前回のPythonプロセスが残ってシリアルポートをロックする問題を根絶。
+  - `tsnd_bridge.py`: `connection_manager`の先頭で全センサーのBluetooth接続を切断→順番に再接続する`_reset_bluetooth_connections`を追加。ゴーストRFCOMMチャネルをクリアし、確実にクリーンな状態からシリアル通信を開始。

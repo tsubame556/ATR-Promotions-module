@@ -79,7 +79,22 @@ namespace InfantPostureApp
                 _pythonProcess.ErrorDataReceived += (sender, e) => 
                 { 
                     if (!string.IsNullOrEmpty(e.Data)) 
+                    {
                         Debug.Log($"[Python] {e.Data}"); // stderrもLogとして表示（エラーではなくログとして扱う）
+                        if (e.Data.Contains("initialized successfully"))
+                        {
+                            var parts = e.Data.Split(new string[] { "Sensor " }, StringSplitOptions.None);
+                            if (parts.Length > 1)
+                            {
+                                var idStr = parts[1].Split(' ')[0];
+                                if (int.TryParse(idStr, out int id))
+                                {
+                                    var driver = TSND151SerialDriver.GetDriver(id);
+                                    if (driver != null) driver.SetStandbyConnected();
+                                }
+                            }
+                        }
+                    }
                 };
                 
                 _pythonProcess.Start();

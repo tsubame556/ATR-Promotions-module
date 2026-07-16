@@ -13,3 +13,5 @@
   - `tsnd_bridge.py`: `init_sensor`から計測開始(`0x13`)を分離。
   - `TSND151UdpManager.cs`: `StartMeasurement`, `StopMeasurement`を追加しPythonの標準入力にコマンド送信。
   - `AppUIManager.cs`: 記録開始/停止ボタンと連動し、全センサーの計測を同時開始・同時停止するよう改善。
+- **スタンバイ時のUIステータス表示修正**
+  - 計測データが届かないスタンバイ状態でも、Python側からの`initialized successfully`メッセージを検知し、UIのステータスバーを緑色(Connected)にするよう修正。

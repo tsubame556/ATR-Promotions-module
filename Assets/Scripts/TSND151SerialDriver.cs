@@ -42,6 +42,7 @@ namespace InfantPostureApp
 
         // ステータスプロパティ
         public bool IsConnected { get; private set; } = false;
+        public bool IsStandby { get; private set; } = false;
         public int CurrentBatteryLevel { get; private set; } = 100;
         public string ConnectionStatus { get; private set; } = "Disconnected";
 
@@ -52,6 +53,7 @@ namespace InfantPostureApp
 
         private float _lastDataTime = 0f;
         private volatile bool _hasNewData = false;
+        private volatile bool _readyForStandby = false;
 
         private void Awake()
         {
@@ -86,13 +88,31 @@ namespace InfantPostureApp
             }
 
             IsConnected = false;
+            IsStandby = false;
             ConnectionStatus = "Connecting...";
+        }
+
+        public void SetStandbyConnected()
+        {
+            if (!IsDummyMode)
+            {
+                _readyForStandby = true;
+            }
         }
 
         private void Update()
         {
             if (!IsDummyMode)
             {
+                if (_readyForStandby)
+                {
+                    IsConnected = true;
+                    IsStandby = true;
+                    ConnectionStatus = "Connected (Standby)";
+                    _lastDataTime = Time.time;
+                    _readyForStandby = false;
+                }
+
                 if (_hasNewData)
                 {
                     IsConnected = true;
@@ -101,7 +121,7 @@ namespace InfantPostureApp
                     _hasNewData = false;
                 }
 
-                if (IsConnected && Time.time - _lastDataTime > 3.0f)
+                if (IsConnected && !IsStandby && Time.time - _lastDataTime > 3.0f)
                 {
                     IsConnected = false;
                     ConnectionStatus = "Data Timeout";
@@ -119,6 +139,7 @@ namespace InfantPostureApp
         {
             if (!IsDummyMode)
             {
+                IsStandby = false;
                 _hasNewData = true;
             }
             DataQueue.Enqueue(sd);

@@ -255,16 +255,16 @@ namespace InfantPostureApp
             try
             {
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-                // 1. /devに既に存在するポートを追加
+                // 1. /devに既に存在するポートを追加（cu.*を使用）
                 if (System.IO.Directory.Exists("/dev"))
                 {
-                    string[] ttyPorts = System.IO.Directory.GetFiles("/dev", "tty.TSND151*");
-                    foreach (var p in ttyPorts)
+                    string[] cuPorts = System.IO.Directory.GetFiles("/dev", "cu.TSND151*");
+                    foreach (var p in cuPorts)
                     {
                         if (addedPorts.Add(p))
                         {
-                            // "/dev/tty.TSND151-AP09182352" → "TSND151-AP09182352"
-                            string displayName = p.Replace("/dev/tty.", "");
+                            // "/dev/cu.TSND151-AP09182352" → "TSND151-AP09182352"
+                            string displayName = p.Replace("/dev/cu.", "");
                             options.Add(displayName);
                             _portDisplayToFullPath[displayName] = p;
                         }

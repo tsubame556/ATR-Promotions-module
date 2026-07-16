@@ -19,3 +19,4 @@
   - macOSでは `/dev/tty.*` はDCD（Data Carrier Detect）信号を待つためシリアル通信がブロックされ、全てのACKがタイムアウトしていた。
   - Bluetooth SPPの発信側接続では `/dev/cu.*` を使う必要があるため、`AppUIManager.cs` のポート生成ロジックを修正。
   - `tsnd_bridge.py` の `serial.Serial` に `rtscts=False, dsrdtr=False` を明示的に指定し、ハードウェアフロー制御によるブロッキングも防止。
+  - Part 1 のポートスキャン（`/dev/`直接スキャン）も `tty.TSND151*` → `cu.TSND151*` に変更し、Part 2（system_profiler予測）との重複登録（同じセンサーが2回ドロップダウンに表示される問題）を解消。

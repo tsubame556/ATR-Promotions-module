@@ -19,6 +19,15 @@ namespace InfantPostureApp
     /// </summary>
     public class AppUIManager : MonoBehaviour
     {
+        public static AppUIManager Instance { get; private set; }
+
+        // Thread-safe update queues
+        private System.Collections.Concurrent.ConcurrentQueue<System.Action> _mainThreadActions = new System.Collections.Concurrent.ConcurrentQueue<System.Action>();
+
+        // New fields for Battery and Status tracking
+        private float[] sensorBatteries = new float[10];
+        private int[] sensorStatuses = new int[10];
+        private bool[] sensorNeedsUIUpdate = new bool[10];
         [Header("Core Systems")]
         public PostureAnalyzer postureAnalyzer;
         public DataManager dataManager;
@@ -48,6 +57,73 @@ namespace InfantPostureApp
 
         private AppState currentState = AppState.Disconnected;
         private Coroutine toastCoroutine;
+
+        private void Awake()
+        {
+            if (Instance == null) { Instance = this; }
+            else { Destroy(gameObject); }
+        }
+
+        private void ProcessMainThreadActions()
+        {
+            while (_mainThreadActions.TryDequeue(out var action))
+            {
+                action?.Invoke();
+            }
+
+            for (int i = 0; i < sensorNeedsUIUpdate.Length; i++)
+            {
+                if (sensorNeedsUIUpdate[i])
+                {
+                    sensorNeedsUIUpdate[i] = false;
+                    RefreshSensorStatusUI(i);
+                }
+            }
+        }
+
+        public void UpdateBattery(int sensorId, float voltage)
+        {
+            _mainThreadActions.Enqueue(() =>
+            {
+                if (sensorId >= 0 && sensorId < sensorBatteries.Length)
+                {
+                    sensorBatteries[sensorId] = voltage;
+                    sensorNeedsUIUpdate[sensorId] = true;
+                }
+            });
+        }
+
+        public void UpdateStatus(int sensorId, int status)
+        {
+            _mainThreadActions.Enqueue(() =>
+            {
+                if (sensorId >= 0 && sensorId < sensorStatuses.Length)
+                {
+                    sensorStatuses[sensorId] = status;
+                    sensorNeedsUIUpdate[sensorId] = true;
+                }
+            });
+        }
+
+        private void RefreshSensorStatusUI(int sensorId)
+        {
+            int index = sensorId - 1; // UI arrays are 0-indexed for sensors 1-5
+            if (index >= 0 && index < txtStatusBars.Length)
+            {
+                if (txtStatusBars[index] != null)
+                {
+                    float v = sensorBatteries[sensorId];
+                    int s = sensorStatuses[sensorId];
+                    string stateStr = s == 0 ? "USB(測)" :
+                                      s == 1 ? "USB(録)" :
+                                      s == 2 ? "BT(測)"  :
+                                      s == 3 ? "BT(録)"  :
+                                      s == 4 ? "待機" : "---";
+                    string vStr = v > 0 ? $"{v:F2}V" : "---V";
+                    txtStatusBars[index].text = $"[{sensorId}] {stateStr} | {vStr}";
+                }
+            }
+        }
 
         private void Start()
         {
@@ -349,6 +425,8 @@ namespace InfantPostureApp
 
         private void Update()
         {
+            ProcessMainThreadActions();
+            
             if (postureAnalyzer == null) return;
 
             UpdateTableDisplay();

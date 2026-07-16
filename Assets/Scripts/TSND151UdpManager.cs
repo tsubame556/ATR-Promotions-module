@@ -181,7 +181,7 @@ namespace InfantPostureApp
                 try
                 {
                     byte[] data = _udpClient.Receive(ref remoteEndPoint);
-                    if (data.Length >= 31)  // 1(sensorId) + 30(params)
+                    if (data.Length >= 31)  // 0x8A (1(sensorId) + 30(params))
                     {
                         int sensorId = data[0];
                         byte[] params_ = new byte[30];
@@ -192,6 +192,30 @@ namespace InfantPostureApp
                         if (_packetCount % 500 == 1)
                         {
                             Debug.Log($"[UDPManager] Total UDP packets received: {_packetCount}");
+                        }
+                    }
+                    else if (data.Length == 5 && data[1] == 0xBB)
+                    {
+                        // 0xBB Battery (sensorId, 0xBB, Result, VoltHigh, VoltLow)
+                        int sensorId = data[0];
+                        int result = data[2];
+                        if (result == 0)
+                        {
+                            int voltHigh = data[3];
+                            int voltLow = data[4];
+                            float voltage = ((voltHigh << 8) | voltLow) * 0.001f;
+                            AppUIManager.Instance?.UpdateBattery(sensorId, voltage);
+                        }
+                    }
+                    else if (data.Length == 4 && data[1] == 0x94)
+                    {
+                        // 0x94 Status (sensorId, 0x94, Result, Status)
+                        int sensorId = data[0];
+                        int result = data[2];
+                        int status = data[3];
+                        if (result == 0)
+                        {
+                            AppUIManager.Instance?.UpdateStatus(sensorId, status);
                         }
                     }
                 }

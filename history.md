@@ -25,3 +25,11 @@
   - `tsnd_bridge.py`: 前回導入した一括BT切断はRFCOMMチャネルを破壊し再構築されないため、逆に接続を壊していた。一括リセットを廃止し、センサーの初期化に失敗した場合のみ個別に `_reset_single_sensor` を呼び出して切断→再接続を行うように修正。既存の正常なポートはそのまま利用する。
 - **記録停止時のBluetooth切断防止**
   - `tsnd_bridge.py`: `stop_sensor` メソッドで送信する `0x15`（計測終了）コマンドの引数を `0x00`（Bluetooth切断して待機モード）から `0x01`（Bluetoothを維持して通信モード）に変更。これにより「記録終了」を押してもBluetooth接続が保たれるように修正。
+- **複数センサー同時接続のタイミングバグ修正 (Pythonブリッジ)**
+  - 複数センサー接続時、`blueutil` で全センサーを一度に接続してからシリアルポートを開こうとすると、後続センサーを処理している間に先行センサーがタイムアウトして切断される（未接続に戻る）致命的なバグを修正。
+  - 「1つのセンサーを `blueutil` で接続したら、即座にそのシリアルポートを開く」という順番処理に変更。
+- **UIメインスレッド更新の安全な実装**
+  - `AppUIManager.cs` にて、UDP受信スレッドからUnity UIを更新した際に出るエラーを防ぐため、スレッドセーフな `ConcurrentQueue` とメインスレッドでのアクション実行用メソッド (`ProcessMainThreadActions`) を導入。
+  - 既存の `Update()` メソッドとの名前衝突 (CS0111) を解決。
+- **FindObjectOfTypeの非推奨警告対応**
+  - `SceneSetupHelper.cs` 内の非推奨メソッド警告 (CS0618) を解消するため、`FindObjectOfType<T>()` を `Object.FindFirstObjectByType<T>()` に置換。

@@ -9,8 +9,8 @@ public class SceneSetupHelper : EditorWindow
     public static void SetupScene()
     {
         // 1. Find AppUIManager and PostureAnalyzer
-        AppUIManager uiManager = FindObjectOfType<AppUIManager>();
-        PostureAnalyzer analyzer = FindObjectOfType<PostureAnalyzer>();
+        AppUIManager uiManager = Object.FindFirstObjectByType<AppUIManager>();
+        PostureAnalyzer analyzer = Object.FindFirstObjectByType<PostureAnalyzer>();
 
         if (uiManager == null || analyzer == null)
         {
@@ -19,10 +19,10 @@ public class SceneSetupHelper : EditorWindow
         }
 
         // 2. Setup Graph UI
-        RealtimeGraphController graph = FindObjectOfType<RealtimeGraphController>();
+        RealtimeGraphController graph = Object.FindFirstObjectByType<RealtimeGraphController>();
         if (graph == null)
         {
-            Canvas canvas = FindObjectOfType<Canvas>();
+            Canvas canvas = Object.FindFirstObjectByType<Canvas>();
             if (canvas == null)
             {
                 GameObject canvasObj = new GameObject("Canvas");

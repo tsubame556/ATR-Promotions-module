@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import sys
+import select
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5000
@@ -130,28 +131,43 @@ def wait_for_ack(ser, timeout=2.0):
     return False, None
 
 def init_sensor(ser):
-    """公式ライブラリの手順に準拠したセンサ初期化。"""
-    # 以前のゾンビ状態のパケットを破棄する
-    try:
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-    except Exception:
-        pass
-    time.sleep(0.5)
-
-    print("  [CMD] Waking up sensor with force_stop...", file=sys.stderr)
+    print(f"[Bridge] Initializing Sensor...", file=sys.stderr)
+    ser.reset_input_buffer()
     awake = False
+    
+    # 1. 測定中(0x8Aが流れてくるか)を確認
+    start = time.time()
+    is_measuring = False
+    while time.time() - start < 1.0:
+        if ser.in_waiting > 0:
+            data = ser.read(ser.in_waiting)
+            if b'\x9A\x8A' in data or b'\x9a\x8a' in data:
+                is_measuring = True
+                break
+        time.sleep(0.01)
+
+    if is_measuring:
+        print("  [CMD] Sensor is stuck in measuring mode. Sending stop...", file=sys.stderr)
+        send_cmd(ser, 0x15, [0x01], "stop_measure")
+        wait_for_ack(ser, timeout=1.5)
+
+    # 2. センサーをWake Up (0x15 0x00)
     for _ in range(3):
+        print("  [CMD] Waking up sensor with 0x15 0x00...", file=sys.stderr)
         send_cmd(ser, 0x15, [0x00], "force_stop")
         ok, _ = wait_for_ack(ser, timeout=1.5)
         if ok:
             awake = True
             break
-        time.sleep(0.5)
-        
+            
     if not awake:
-        print("  [WARN] Sensor did not respond to initial wake up (force_stop).", file=sys.stderr)
+        print(f"  [WARN] Sensor did not respond to initial wake up.", file=sys.stderr)
         return False
+        
+    # Transition back to Comm Mode so it stays connected
+    print("  [CMD] Transitioning to Comm Mode with 0x15 0x01...", file=sys.stderr)
+    send_cmd(ser, 0x15, [0x01], "comm_mode")
+    time.sleep(0.5)
         
     ser.reset_input_buffer()
     time.sleep(0.1)
@@ -225,6 +241,13 @@ def read_loop(ser, sensor_id):
                     data_count += 1
                     if data_count % 100 == 1:
                         print(f"[Bridge] Sensor {sensor_id}: {data_count} packets sent", file=sys.stderr)
+                elif cmd == 0xBB or cmd == 0x94:
+                    # Battery (0xBB) or Status (0x94)
+                    # Payload: [sensor_id, cmd, params...]
+                    params = pkt[2:-1]
+                    udp_payload = bytes([sensor_id, cmd]) + params
+                    sock.sendto(udp_payload, (UDP_IP, UDP_PORT))
+                    print(f"[Bridge] Sensor {sensor_id}: Sent Cmd 0x{cmd:02X} to Unity", file=sys.stderr)
             
             if ser.in_waiting == 0:
                 time.sleep(0.005)
@@ -326,20 +349,14 @@ def connection_manager(sensor_specs, serials, threads):
     # 既存のポートが存在するセンサーはそのまま使い、存在しないポートのみforce_mac_connectionで対処する。
     
     while is_running and unconnected:
-        # Pre-pass: Force connect ALL missing ports first BEFORE opening any serial ports
-        # This prevents the active SPP data stream of an early sensor from blocking the Mac's Bluetooth daemon
-        # from negotiating connections for subsequent sensors.
-        for sensor_id, port in unconnected:
-            if not is_running:
-                break
-            if not os.path.exists(port):
-                print(f"[Bridge] Pre-connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
-                force_mac_connection(port)
-                
         still_unconnected = []
         for sensor_id, port in unconnected:
             if not is_running:
                 break
+                
+            if not os.path.exists(port):
+                print(f"[Bridge] Pre-connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
+                force_mac_connection(port)
                 
             print(f"[Bridge] Opening Sensor {sensor_id} on {port}...", file=sys.stderr)
             
@@ -429,30 +446,41 @@ def main():
     if not sensor_specs:
         print("[Bridge] No sensors specified.", file=sys.stderr)
         sys.exit(1)
-
     threads = []
     serials = []
 
     cm_thread = threading.Thread(target=connection_manager, args=(sensor_specs, serials, threads), daemon=True)
     cm_thread.start()
 
-    print(f"[Bridge] Connection manager started in background. Waiting for stdin EOF...", file=sys.stderr)
-    sys.stderr.flush()
-    
+    # 接続管理とコマンド受信用ループ
+    last_battery_poll = time.time()
     try:
         while True:
-            line = sys.stdin.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line == "START":
-                print("[Bridge] Received START command. Starting measurement on all sensors...", file=sys.stderr)
-                for sid, s in serials:
-                    start_measurement(s)
-            elif line == "STOP":
-                print("[Bridge] Received STOP command. Stopping measurement on all sensors...", file=sys.stderr)
-                for sid, s in serials:
-                    stop_sensor(s)
+            # Check for stdin commands without blocking indefinitely
+            rlist, _, _ = select.select([sys.stdin], [], [], 1.0)
+            if rlist:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                
+                cmd = line.strip().upper()
+                if cmd == "START":
+                    print("[Bridge] Received START command. Broadcasting start_measurement...", file=sys.stderr)
+                    for sid, s in list(serials):
+                        start_measurement(s)
+                elif cmd == "STOP":
+                    print("[Bridge] Received STOP command. Broadcasting stop_sensor...", file=sys.stderr)
+                    for sid, s in list(serials):
+                        stop_sensor(s)
+
+            # バッテリーポーリング (約10秒間隔)
+            if time.time() - last_battery_poll > 10.0:
+                last_battery_poll = time.time()
+                for sid, s in list(serials):
+                    # 測定中であっても取得可能なら送る（不要なら条件分岐）
+                    # 0x3B = get battery voltage
+                    send_cmd(s, 0x3B, [], "get_battery")
+                    
     except KeyboardInterrupt:
         pass
 

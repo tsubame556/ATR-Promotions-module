@@ -135,6 +135,26 @@ namespace InfantPostureApp
             }
         }
 
+        public void StartMeasurement()
+        {
+            if (_pythonProcess != null && !_pythonProcess.HasExited)
+            {
+                _pythonProcess.StandardInput.WriteLine("START");
+                _pythonProcess.StandardInput.Flush();
+                Debug.Log("[UDPManager] Sent START command to Python bridge.");
+            }
+        }
+
+        public void StopMeasurement()
+        {
+            if (_pythonProcess != null && !_pythonProcess.HasExited)
+            {
+                _pythonProcess.StandardInput.WriteLine("STOP");
+                _pythonProcess.StandardInput.Flush();
+                Debug.Log("[UDPManager] Sent STOP command to Python bridge.");
+            }
+        }
+
         private void ReceiveLoop()
         {
             IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);

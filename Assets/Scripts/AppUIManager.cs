@@ -202,6 +202,10 @@ namespace InfantPostureApp
         {
             if (dataManager != null)
             {
+                if (TSND151UdpManager.Instance != null)
+                {
+                    TSND151UdpManager.Instance.StartMeasurement();
+                }
                 dataManager.StartRecording();
                 ChangeState(AppState.Recording);
             }
@@ -211,6 +215,10 @@ namespace InfantPostureApp
         {
             if (dataManager != null)
             {
+                if (TSND151UdpManager.Instance != null)
+                {
+                    TSND151UdpManager.Instance.StopMeasurement();
+                }
                 dataManager.StopRecording();
                 ChangeState(AppState.Stopped);
             }

@@ -9,3 +9,7 @@
   - センサー通信開始時 (`init_sensor`) に `ser.reset_input_buffer()` と `ser.reset_output_buffer()` を実行し、前回の強制終了によって残存したゾンビデータによる `force_stop` タイムアウトバグを解消。
 - **UI表示名からデバイスパスへの対応**
   - `AppUIManager.cs` にて、ユーザーに見やすい短縮名（TSND151-AP...）から実際のシステムパス（/dev/tty...）への変換辞書 (`_portDisplayToFullPath`) を導入。
+- **計測開始のUI連動化**
+  - `tsnd_bridge.py`: `init_sensor`から計測開始(`0x13`)を分離。
+  - `TSND151UdpManager.cs`: `StartMeasurement`, `StopMeasurement`を追加しPythonの標準入力にコマンド送信。
+  - `AppUIManager.cs`: 記録開始/停止ボタンと連動し、全センサーの計測を同時開始・同時停止するよう改善。

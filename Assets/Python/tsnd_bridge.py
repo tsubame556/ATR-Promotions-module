@@ -171,13 +171,12 @@ def init_sensor(ser):
     ok, _ = wait_for_ack(ser)
     time.sleep(0.1)
     
+    return True
+
+def start_measurement(ser):
     start_flag = [0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0]
     send_cmd(ser, 0x13, start_flag, "start_recording")
-    time.sleep(0.5)
-    if ser.in_waiting > 0:
-        resp = ser.read(ser.in_waiting)
-        print(f"  [RSP] start response: {resp.hex()}", file=sys.stderr)
-    return True
+    time.sleep(0.1)
 
 def stop_sensor(ser):
     send_cmd(ser, 0x15, [0x00], "stop")
@@ -373,6 +372,15 @@ def main():
             line = sys.stdin.readline()
             if not line:
                 break
+            line = line.strip()
+            if line == "START":
+                print("[Bridge] Received START command. Starting measurement on all sensors...", file=sys.stderr)
+                for sid, s in serials:
+                    start_measurement(s)
+            elif line == "STOP":
+                print("[Bridge] Received STOP command. Stopping measurement on all sensors...", file=sys.stderr)
+                for sid, s in serials:
+                    stop_sensor(s)
     except KeyboardInterrupt:
         pass
 

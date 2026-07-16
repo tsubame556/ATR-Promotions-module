@@ -21,7 +21,7 @@ is_running = True
 
 
 # ============================================================
-# macOS Bluetooth 自動接続 (blueutil使用)
+# macOS Bluetooth SPP 自動接続 (IOBluetooth Swift ヘルパー使用)
 # ============================================================
 
 def get_bluetooth_address(device_name):
@@ -47,18 +47,46 @@ def get_bluetooth_address(device_name):
     return None
 
 
+def get_helper_path():
+    """Swiftヘルパーバイナリのパスを取得し、未コンパイルなら自動コンパイルする"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    helper_bin = os.path.join(script_dir, "bt_connect_helper")
+    helper_src = os.path.join(script_dir, "bt_connect_helper.swift")
+    
+    # バイナリが存在しない、またはソースより古い場合はコンパイル
+    if not os.path.exists(helper_bin) or \
+       (os.path.exists(helper_src) and os.path.getmtime(helper_src) > os.path.getmtime(helper_bin)):
+        print("  [BT] Compiling Swift Bluetooth helper...", file=sys.stderr)
+        try:
+            result = subprocess.run(
+                ['swiftc', '-o', helper_bin, helper_src,
+                 '-framework', 'IOBluetooth', '-framework', 'Foundation'],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.returncode != 0:
+                print(f"  [BT] Compile failed: {result.stderr}", file=sys.stderr)
+                return None
+            print("  [BT] Compile successful.", file=sys.stderr)
+        except Exception as e:
+            print(f"  [BT] Compile error: {e}", file=sys.stderr)
+            return None
+    
+    return helper_bin
+
+
 def ensure_bluetooth_connected(port_path):
     """
     macOSでBluetooth SPPデバイスの/devファイルが未出現の場合、
-    bleutilを使ってBluetooth接続を確立し/devファイルを生成する
+    IOBluetooth Swiftヘルパーを使用してACL接続 + SDP + RFCOMM接続を行い、
+    /dev/ttyファイルを確実に生成する
     """
     if os.path.exists(port_path):
         print(f"  [BT] Port {port_path} already exists.", file=sys.stderr)
         return True
     
-    # ポート名からデバイス名を抽出: /dev/tty.TSND151-AP09182352 → TSND151-AP09182352
+    # デバイス名を抽出: /dev/tty.TSND151-AP09182352 → TSND151-AP09182352
     device_name = os.path.basename(port_path).replace("tty.", "")
-    print(f"  [BT] Port {port_path} not found. Attempting Bluetooth connect for {device_name}...", file=sys.stderr)
+    print(f"  [BT] Port {port_path} not found. Connecting {device_name}...", file=sys.stderr)
     
     # MACアドレスを取得
     mac_address = get_bluetooth_address(device_name)
@@ -66,35 +94,39 @@ def ensure_bluetooth_connected(port_path):
         print(f"  [BT] Could not find MAC address for {device_name}.", file=sys.stderr)
         return False
     
-    print(f"  [BT] Found MAC {mac_address} for {device_name}. Connecting via blueutil...", file=sys.stderr)
+    print(f"  [BT] MAC={mac_address}. Using IOBluetooth helper...", file=sys.stderr)
     
-    # bleutilで接続
+    # Swiftヘルパーバイナリを取得
+    helper_bin = get_helper_path()
+    if not helper_bin:
+        print("  [BT] Swift helper not available.", file=sys.stderr)
+        return False
+    
+    # ヘルパーを実行（ACL接続 + SDP + RFCOMM → /dev/tty 生成を待つ）
     try:
         result = subprocess.run(
-            ['blueutil', '--connect', mac_address],
-            timeout=15,
-            capture_output=True,
-            text=True
+            [helper_bin, mac_address, port_path],
+            capture_output=True, text=True, timeout=45
         )
-        if result.returncode != 0:
-            print(f"  [BT] blueutil connect failed: {result.stderr}", file=sys.stderr)
-    except FileNotFoundError:
-        print("  [BT] blueutil not found. Install with: brew install blueutil", file=sys.stderr)
+        # stdoutに "OK" が含まれていれば成功
+        stdout_line = result.stdout.strip()
+        # stderrのログを表示
+        for line in result.stderr.strip().split('\n'):
+            if line:
+                print(f"  {line}", file=sys.stderr)
+        
+        if stdout_line == "OK":
+            print(f"  [BT] Successfully connected {device_name}!", file=sys.stderr)
+            return True
+        else:
+            print(f"  [BT] Helper returned: {stdout_line}", file=sys.stderr)
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"  [BT] Helper timed out for {device_name}.", file=sys.stderr)
         return False
     except Exception as e:
-        print(f"  [BT] blueutil error: {e}", file=sys.stderr)
+        print(f"  [BT] Helper error: {e}", file=sys.stderr)
         return False
-    
-    # /devファイルが生成されるのを待つ（最大15秒）
-    print(f"  [BT] Waiting for {port_path} to appear...", file=sys.stderr)
-    for i in range(30):
-        time.sleep(0.5)
-        if os.path.exists(port_path):
-            print(f"  [BT] Port {port_path} appeared after {(i+1)*0.5:.1f}s!", file=sys.stderr)
-            return True
-    
-    print(f"  [BT] Timed out waiting for {port_path}.", file=sys.stderr)
-    return False
 
 # 公式仕様に準拠したレスポンスパラメータ長マップ
 RESPONSE_ARG_LEN = {

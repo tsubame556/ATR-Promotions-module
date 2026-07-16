@@ -270,70 +270,57 @@ def force_mac_connection(port_path):
         print(f"[Bridge] force_mac_connection error for {dev_name}: {e}", file=sys.stderr)
     return False
 
-def _reset_bluetooth_connections(sensor_specs):
-    """全センサーのBluetooth接続を切断→再接続してRFCOMMチャネルをリセットする"""
+def _reset_single_sensor(port_path):
+    """特定のセンサーのBluetooth接続を切断→再接続してRFCOMMチャネルをリセットする"""
     import subprocess
     blueutil_path = "/opt/homebrew/bin/blueutil"
     if not os.path.exists(blueutil_path):
         blueutil_path = "blueutil"
     
-    # system_profiler からMAC辞書を構築
-    mac_map = {}
+    dev_name = port_path.split('.')[-1]
+    mac = None
     try:
         out = subprocess.check_output(["/usr/sbin/system_profiler", "SPBluetoothDataType"], text=True)
         lines = out.split('\n')
         for i, line in enumerate(lines):
-            for sensor_id, port in sensor_specs:
-                dev_name = port.split('.')[-1]
-                if dev_name in line:
-                    for j in range(1, 6):
-                        if i+j < len(lines) and "Address:" in lines[i+j]:
-                            mac = lines[i+j].split("Address:")[1].strip()
-                            mac_map[sensor_id] = mac
-                            break
+            if dev_name in line:
+                for j in range(1, 6):
+                    if i+j < len(lines) and "Address:" in lines[i+j]:
+                        mac = lines[i+j].split("Address:")[1].strip()
+                        break
+                break
     except Exception as e:
-        print(f"[Bridge] Failed to build MAC map: {e}", file=sys.stderr)
+        print(f"[Bridge] Failed to find MAC for {dev_name}: {e}", file=sys.stderr)
         return
-    
-    if not mac_map:
-        print("[Bridge] No MAC addresses found, skipping BT reset.", file=sys.stderr)
+        
+    if not mac:
+        print(f"[Bridge] No MAC address found for {dev_name}, skipping BT reset.", file=sys.stderr)
         return
-    
-    # 全センサーを切断
-    print(f"[Bridge] Resetting Bluetooth connections for {len(mac_map)} sensors...", file=sys.stderr)
-    for sensor_id, mac in mac_map.items():
-        try:
-            subprocess.run([blueutil_path, "--disconnect", mac], timeout=5, capture_output=True)
-            print(f"[Bridge] Disconnected Sensor {sensor_id} ({mac})", file=sys.stderr)
-        except Exception:
-            pass
-    
+        
+    print(f"[Bridge] Resetting Bluetooth connection for {dev_name} ({mac})...", file=sys.stderr)
+    try:
+        subprocess.run([blueutil_path, "--disconnect", mac], timeout=5, capture_output=True)
+        print(f"[Bridge] Disconnected {dev_name}", file=sys.stderr)
+    except Exception:
+        pass
+        
     time.sleep(2)
     
-    # 順番に再接続（1台ずつ待機して接続する）
-    for sensor_id, mac in mac_map.items():
-        if not is_running:
-            break
-        try:
-            print(f"[Bridge] Reconnecting Sensor {sensor_id} ({mac})...", file=sys.stderr)
-            res = subprocess.run([blueutil_path, "--connect", mac], timeout=30, capture_output=True, text=True)
-            if res.returncode == 0:
-                print(f"[Bridge] Sensor {sensor_id} reconnected successfully.", file=sys.stderr)
-            else:
-                print(f"[Bridge] Sensor {sensor_id} reconnect failed: {res.stderr.strip()}", file=sys.stderr)
-        except subprocess.TimeoutExpired:
-            print(f"[Bridge] Sensor {sensor_id} reconnect timeout.", file=sys.stderr)
-        time.sleep(1)
-    
-    # ポートが生成されるまで少し待つ
-    time.sleep(2)
-    print("[Bridge] Bluetooth reset complete.", file=sys.stderr)
+    try:
+        print(f"[Bridge] Reconnecting {dev_name}...", file=sys.stderr)
+        res = subprocess.run([blueutil_path, "--connect", mac], timeout=30, capture_output=True, text=True)
+        if res.returncode == 0:
+            print(f"[Bridge] {dev_name} reconnected successfully.", file=sys.stderr)
+        else:
+            print(f"[Bridge] {dev_name} reconnect failed: {res.stderr.strip()}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"[Bridge] {dev_name} reconnect timeout.", file=sys.stderr)
 
 def connection_manager(sensor_specs, serials, threads):
     unconnected = list(sensor_specs)
-    
-    # 初回のみ: 全センサーのBluetooth接続をリセットし、ゴーストRFCOMMチャネルをクリア
-    _reset_bluetooth_connections(sensor_specs)
+    # 注意: ここで一括BTリセットを行わない。blueutil --connectはACLリンクのみ再構築し
+    # RFCOMMチャネル(シリアルポート)は再構築されないため、逆にポートを壊す。
+    # 既存のポートが存在するセンサーはそのまま使い、存在しないポートのみforce_mac_connectionで対処する。
     
     while is_running and unconnected:
         # Pre-pass: Force connect ALL missing ports first BEFORE opening any serial ports
@@ -378,7 +365,22 @@ def connection_manager(sensor_specs, serials, threads):
                     init_success = True
                     break
                 print(f"[Bridge] Sensor {sensor_id} init attempt {attempt+1} failed. Retrying...", file=sys.stderr)
+                # 失敗時: シリアルポートを閉じてBTを個別にリセットし、再度開く
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+                time.sleep(1)
+                # BT個別リセット: このセンサーだけdisconnect→reconnect
+                _reset_single_sensor(port)
                 time.sleep(2)
+                try:
+                    ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0,
+                                        rtscts=False, dsrdtr=False)
+                    time.sleep(1.5)
+                except Exception as e:
+                    print(f"[Bridge] Error reopening port for Sensor {sensor_id}: {e}", file=sys.stderr)
+                    break
                 
             if init_success:
                 print(f"[Bridge] Sensor {sensor_id} initialized successfully.", file=sys.stderr)
@@ -388,7 +390,10 @@ def connection_manager(sensor_specs, serials, threads):
                 threads.append(t)
             else:
                 print(f"[Bridge] Sensor {sensor_id} init permanently failed. Will retry next loop.", file=sys.stderr)
-                ser.close()
+                try:
+                    ser.close()
+                except Exception:
+                    pass
                 still_unconnected.append((sensor_id, port))
                 
         unconnected = still_unconnected

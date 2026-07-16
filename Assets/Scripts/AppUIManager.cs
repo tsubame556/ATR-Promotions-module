@@ -152,9 +152,17 @@ namespace InfantPostureApp
                     if (selectedText == "None" || string.IsNullOrEmpty(selectedText))
                     {
                         Debug.Log($"[UIManager] Sensor {driver.sensorId} port is None. Skipping.");
-                        continue; // Noneの場合は接続をスキップ
+                        continue;
                     }
-                    targetPort = selectedText;
+                    // 短縮表示名をフルパスに復元（対応がなければそのまま使用）
+                    if (_portDisplayToFullPath.TryGetValue(selectedText, out string fullPath))
+                    {
+                        targetPort = fullPath;
+                    }
+                    else
+                    {
+                        targetPort = selectedText;
+                    }
                 }
 
                 driver.Connect(targetPort);
@@ -226,9 +234,14 @@ namespace InfantPostureApp
             }
         }
 
+        // ドロップダウンの短縮表示名 → フルパスの対応表
+        private Dictionary<string, string> _portDisplayToFullPath = new Dictionary<string, string>();
+
         public void RefreshPorts()
         {
             System.Collections.Generic.List<string> options = new System.Collections.Generic.List<string> { "None" };
+            _portDisplayToFullPath.Clear();
+            _portDisplayToFullPath["None"] = "";
             HashSet<string> addedPorts = new HashSet<string>();
 
             try
@@ -241,12 +254,16 @@ namespace InfantPostureApp
                     foreach (var p in ttyPorts)
                     {
                         if (addedPorts.Add(p))
-                            options.Add(p);
+                        {
+                            // "/dev/tty.TSND151-AP09182352" → "TSND151-AP09182352"
+                            string displayName = p.Replace("/dev/tty.", "");
+                            options.Add(displayName);
+                            _portDisplayToFullPath[displayName] = p;
+                        }
                     }
                 }
 
-                // 2. system_profiler でペアリング済みBluetoothデバイスからTSND151を検出し、
-                //    /devに未出現のポートも予測生成して候補に追加する
+                // 2. system_profiler でペアリング済みBluetoothデバイスからTSND151を検出
                 try
                 {
                     var psi = new System.Diagnostics.ProcessStartInfo
@@ -261,25 +278,21 @@ namespace InfantPostureApp
                     string output = proc.StandardOutput.ReadToEnd();
                     proc.WaitForExit(3000);
 
-                    // "TSND151-XXXXXXXXXX" を含む行からデバイス名を抽出
                     var lines = output.Split('\n');
                     foreach (var line in lines)
                     {
                         string trimmed = line.Trim();
-                        // system_profilerの出力でデバイス名が "TSND151-AP09182352:" のように表示される
                         if (trimmed.Contains("TSND151"))
                         {
-                            // "TSND151-AP09182352:" → "TSND151-AP09182352"
-                            string deviceName = trimmed.TrimEnd(':', ' ');
-                            // 余分な前後のスペースを除去
-                            deviceName = deviceName.Trim();
+                            string deviceName = trimmed.TrimEnd(':', ' ').Trim();
                             if (deviceName.Length > 0)
                             {
-                                string predictedPort = "/dev/tty." + deviceName;
-                                if (addedPorts.Add(predictedPort))
+                                string fullPath = "/dev/tty." + deviceName;
+                                if (addedPorts.Add(fullPath))
                                 {
-                                    options.Add(predictedPort);
-                                    Debug.Log($"[PortScan] Predicted port from paired device: {predictedPort}");
+                                    options.Add(deviceName);
+                                    _portDisplayToFullPath[deviceName] = fullPath;
+                                    Debug.Log($"[PortScan] Predicted port: {deviceName} → {fullPath}");
                                 }
                             }
                         }
@@ -290,7 +303,6 @@ namespace InfantPostureApp
                     Debug.LogWarning("[PortScan] system_profiler scan failed: " + e2.Message);
                 }
 #else
-                // Windows等の場合の汎用シリアルポート取得
                 options.AddRange(System.IO.Ports.SerialPort.GetPortNames());
 #endif
             }
@@ -308,8 +320,14 @@ namespace InfantPostureApp
                         dropdown.ClearOptions();
                         dropdown.AddOptions(options);
 
-                        // 見つかったポートの数がセンサの台数と一致する場合は自動で割り当てる
-                        // (options[0]="None", options[1]=port1, options[2]=port2, ...)
+                        // ドロップダウン展開時のテンプレート幅を広げて全文字表示
+                        var template = dropdown.template;
+                        if (template != null)
+                        {
+                            template.sizeDelta = new Vector2(350f, template.sizeDelta.y);
+                        }
+
+                        // 自動割り当て
                         if (options.Count > i + 1)
                         {
                             dropdown.value = i + 1;

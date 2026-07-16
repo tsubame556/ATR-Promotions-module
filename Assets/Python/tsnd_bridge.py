@@ -250,9 +250,10 @@ def force_mac_connection(port_path):
             if not os.path.exists(blueutil_path):
                 blueutil_path = "blueutil"
             
-            # Increase timeout to 10s because Mac Bluetooth can be very slow when connecting multiple devices sequentially
+            # Increase timeout to 30s because Mac Bluetooth can be very slow when connecting multiple devices sequentially
+            # Killing blueutil before it finishes corrupts the blued daemon state!
             try:
-                res = subprocess.run([blueutil_path, "--connect", mac], timeout=10, capture_output=True, text=True)
+                res = subprocess.run([blueutil_path, "--connect", mac], timeout=30, capture_output=True, text=True)
                 if res.returncode != 0:
                     print(f"[Bridge] blueutil connect failed for {dev_name}: {res.stderr.strip()}", file=sys.stderr)
             except subprocess.TimeoutExpired:
@@ -274,19 +275,27 @@ def connection_manager(sensor_specs, serials, threads):
     unconnected = list(sensor_specs)
     
     while is_running and unconnected:
+        # Pre-pass: Force connect ALL missing ports first BEFORE opening any serial ports
+        # This prevents the active SPP data stream of an early sensor from blocking the Mac's Bluetooth daemon
+        # from negotiating connections for subsequent sensors.
+        for sensor_id, port in unconnected:
+            if not is_running:
+                break
+            if not os.path.exists(port):
+                print(f"[Bridge] Pre-connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
+                force_mac_connection(port)
+                
         still_unconnected = []
         for sensor_id, port in unconnected:
             if not is_running:
                 break
                 
-            print(f"[Bridge] Connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
+            print(f"[Bridge] Opening Sensor {sensor_id} on {port}...", file=sys.stderr)
             
             if not os.path.exists(port):
-                # ポートが存在しない場合、MacのBluetoothが切断状態になっているのでblueutilで強制接続を試みる
-                if not force_mac_connection(port):
-                    print(f"[Bridge] SKIPPED Sensor {sensor_id}: Port {port} does not exist.", file=sys.stderr)
-                    still_unconnected.append((sensor_id, port))
-                    continue
+                print(f"[Bridge] SKIPPED Sensor {sensor_id}: Port {port} does not exist.", file=sys.stderr)
+                still_unconnected.append((sensor_id, port))
+                continue
             
             try:
                 # タイムアウトを少し長めにしてRFCOMM確立を確実にする

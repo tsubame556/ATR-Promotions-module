@@ -179,7 +179,10 @@ def start_measurement(ser):
     time.sleep(0.1)
 
 def stop_sensor(ser):
-    send_cmd(ser, 0x15, [0x00], "stop")
+    # 0x15 コマンドの引数:
+    # 0x00: 計測終了して待機モード（Bluetooth切断）へ移行
+    # 0x01: 計測終了して通信モード（Bluetooth維持）へ移行
+    send_cmd(ser, 0x15, [0x01], "stop")
     time.sleep(0.3)
     if ser.in_waiting > 0:
         ser.read(ser.in_waiting)

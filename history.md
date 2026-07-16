@@ -23,3 +23,5 @@
 - **ゾンビプロセス対策とBluetooth接続リセットの修正**
   - `TSND151UdpManager.cs`: `StartBridge`開始時と`OnDestroy`時に`pkill -f tsnd_bridge.py`を実行し、前回のPythonプロセスが残ってシリアルポートをロックする問題を根絶。
   - `tsnd_bridge.py`: 前回導入した一括BT切断はRFCOMMチャネルを破壊し再構築されないため、逆に接続を壊していた。一括リセットを廃止し、センサーの初期化に失敗した場合のみ個別に `_reset_single_sensor` を呼び出して切断→再接続を行うように修正。既存の正常なポートはそのまま利用する。
+- **記録停止時のBluetooth切断防止**
+  - `tsnd_bridge.py`: `stop_sensor` メソッドで送信する `0x15`（計測終了）コマンドの引数を `0x00`（Bluetooth切断して待機モード）から `0x01`（Bluetoothを維持して通信モード）に変更。これにより「記録終了」を押してもBluetooth接続が保たれるように修正。

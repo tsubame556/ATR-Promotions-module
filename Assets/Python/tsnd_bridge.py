@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TSND151 UDP Bridge - eno-lab/tsnd公式ライブラリの仕様に準拠した実装
+TSND151 UDP Bridge - 公式仕様書準拠版
 センサとの通信はpyserialが行い、データをUDPでUnityへ転送する
 """
 import argparse
@@ -8,7 +8,6 @@ import os
 import socket
 import serial
 import struct
-import subprocess
 import threading
 import time
 import sys
@@ -22,7 +21,7 @@ is_running = True
 
 # 公式仕様に準拠したレスポンスパラメータ長マップ
 RESPONSE_ARG_LEN = {
-    0x8F: 1,   # simple ACK
+    0x8F: 1,   # Command Response
     0x80: 22,  # acc_gyro_data
     0x81: 13,  # magnetism_data
     0x82: 9,   # atmosphere_data
@@ -86,14 +85,14 @@ def build_cmd(cmd_code, args):
     return bytes(total_cmd)
 
 def send_cmd(ser, cmd_code, args, label=""):
-    """コマンドを送信し、ACK応答を待つ"""
+    """コマンドを送信する"""
     packet = build_cmd(cmd_code, args)
     ser.write(packet)
     ser.flush()
     print(f"  [CMD] Sent 0x{cmd_code:02X} ({label}): {packet.hex()}", file=sys.stderr)
 
-def wait_for_ack(ser, timeout=2.0):
-    """ACK(0x8F)応答を待つ。返却値: (成功したか, 応答バイト列)"""
+def wait_for_ack(ser, expected_cmd=0x8F, timeout=2.0):
+    """特定の応答コマンドを待つ"""
     start = time.time()
     buf = bytearray()
     while time.time() - start < timeout:
@@ -111,12 +110,10 @@ def wait_for_ack(ser, timeout=2.0):
                         for b in pkt[:-1]:
                             bcc ^= b
                         if bcc == pkt[-1]:
-                            if cmd == 0x8F:
-                                result = pkt[2]
-                                print(f"  [ACK] 0x8F result=0x{result:02X} {'OK' if result == 0 else 'NG'}", file=sys.stderr)
-                                return result == 0x00, pkt
+                            if cmd == expected_cmd:
+                                print(f"  [ACK] 0x{cmd:02X} OK", file=sys.stderr)
+                                return True, pkt
                             else:
-                                print(f"  [RSP] 0x{cmd:02X} received (non-ACK)", file=sys.stderr)
                                 continue
                         else:
                             buf = buf[1:]
@@ -127,81 +124,50 @@ def wait_for_ack(ser, timeout=2.0):
             else:
                 buf = buf[1:]
         time.sleep(0.01)
-    print(f"  [ACK] Timeout waiting for ACK", file=sys.stderr)
+    print(f"  [ACK] Timeout waiting for 0x{expected_cmd:02X}", file=sys.stderr)
     return False, None
 
 def init_sensor(ser):
     print(f"[Bridge] Initializing Sensor...", file=sys.stderr)
+    # バッファクリア (公式サンプルの read(1000) 相当)
     ser.reset_input_buffer()
-    awake = False
-    
-    # 1. 測定中(0x8Aが流れてくるか)を確認
-    start = time.time()
-    is_measuring = False
-    while time.time() - start < 1.0:
-        if ser.in_waiting > 0:
-            data = ser.read(ser.in_waiting)
-            if b'\x9A\x8A' in data or b'\x9a\x8a' in data:
-                is_measuring = True
-                break
-        time.sleep(0.01)
+    ser.reset_output_buffer()
+    time.sleep(0.1)
 
-    if is_measuring:
-        print("  [CMD] Sensor is stuck in measuring mode. Sending stop...", file=sys.stderr)
-        send_cmd(ser, 0x15, [0x01], "stop_measure")
-        wait_for_ack(ser, timeout=1.5)
+    # まず計測停止(0x15 0x00)を送る (計測中かもしれないので)
+    send_cmd(ser, 0x15, [0x00], "stop_measure")
+    # ここはタイムアウトしても良い (すでに停止している場合があるため)
+    wait_for_ack(ser, timeout=1.0)
+    
+    # 1. 加速度/角速度計測設定 (0x16) -> OFF
+    # p1=0(OFF), p2=0(送信なし), p3=0(記録なし)
+    send_cmd(ser, 0x16, [0x00, 0x00, 0x00], "set_acc_gyro_off")
+    ok, _ = wait_for_ack(ser)
+    if not ok: return False
+    
+    # 2. クオータニオン計測設定 (0x55) -> ON (10ms=0x0A周期)
+    # p1=10(10ms), p2=1(送信する), p3=0(記録なし)
+    send_cmd(ser, 0x55, [0x0A, 0x01, 0x00], "set_quaternion_on")
+    ok, _ = wait_for_ack(ser)
+    if not ok: return False
 
-    # 2. センサーをWake Up (0x15 0x00)
-    for _ in range(3):
-        print("  [CMD] Waking up sensor with 0x15 0x00...", file=sys.stderr)
-        send_cmd(ser, 0x15, [0x00], "force_stop")
-        ok, _ = wait_for_ack(ser, timeout=1.5)
-        if ok:
-            awake = True
-            break
-            
-    if not awake:
-        print(f"  [WARN] Sensor did not respond to initial wake up.", file=sys.stderr)
-        return False
-        
-    # Transition back to Comm Mode so it stays connected
-    print("  [CMD] Transitioning to Comm Mode with 0x15 0x01...", file=sys.stderr)
-    send_cmd(ser, 0x15, [0x01], "comm_mode")
-    time.sleep(0.5)
-        
-    ser.reset_input_buffer()
-    time.sleep(0.1)
-    
-    send_cmd(ser, 0x11, [26, 7, 15, 12, 0, 0, 0, 0], "set_time")
-    ok, _ = wait_for_ack(ser)
-    if not ok:
-        print("  [WARN] set_time ACK failed", file=sys.stderr)
-        return False
-    time.sleep(0.1)
-    
-    send_cmd(ser, 0x16, [0, 0, 0], "set_acc_gyro_interval_off")
-    ok, _ = wait_for_ack(ser)
-    time.sleep(0.1)
-    
-    send_cmd(ser, 0x55, [10, 1, 0], "set_quaternion_interval")
-    ok, _ = wait_for_ack(ser)
-    time.sleep(0.1)
-    
+    # 初期化完了後、即座に計測を開始してデータをストリーミングさせる
+    start_measurement(ser)
+
     return True
 
 def start_measurement(ser):
-    start_flag = [0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0]
+    # 計測開始 (0x13)
+    # 14 bytes: [smode, Y, M, D, h, m, s, emode, Y, M, D, h, m, s]
+    # 相対時間指定(0x00), 月日は 1 以上にする必要がある (0x01)
+    start_flag = [0x00, 0, 1, 1, 0, 0, 0, 0x00, 0, 1, 1, 0, 0, 0]
     send_cmd(ser, 0x13, start_flag, "start_recording")
-    time.sleep(0.1)
 
 def stop_sensor(ser):
-    # 0x15 コマンドの引数:
-    # 0x00: 計測終了して待機モード（Bluetooth切断）へ移行
-    # 0x01: 計測終了して通信モード（Bluetooth維持）へ移行
-    send_cmd(ser, 0x15, [0x01], "stop")
+    # 計測停止 (0x15) -> パラメータは 0x00 固定
+    send_cmd(ser, 0x15, [0x00], "stop")
     time.sleep(0.3)
-    if ser.in_waiting > 0:
-        ser.read(ser.in_waiting)
+    ser.reset_input_buffer()
 
 def read_loop(ser, sensor_id):
     buf = bytearray()
@@ -242,12 +208,9 @@ def read_loop(ser, sensor_id):
                     if data_count % 100 == 1:
                         print(f"[Bridge] Sensor {sensor_id}: {data_count} packets sent", file=sys.stderr)
                 elif cmd == 0xBB or cmd == 0x94:
-                    # Battery (0xBB) or Status (0x94)
-                    # Payload: [sensor_id, cmd, params...]
                     params = pkt[2:-1]
                     udp_payload = bytes([sensor_id, cmd]) + params
                     sock.sendto(udp_payload, (UDP_IP, UDP_PORT))
-                    print(f"[Bridge] Sensor {sensor_id}: Sent Cmd 0x{cmd:02X} to Unity", file=sys.stderr)
             
             if ser.in_waiting == 0:
                 time.sleep(0.005)
@@ -255,98 +218,8 @@ def read_loop(ser, sensor_id):
             print(f"[Bridge] Error on sensor {sensor_id}: {e}", file=sys.stderr)
             break
 
-def force_mac_connection(port_path):
-    import subprocess
-    dev_name = port_path.split('.')[-1]
-    try:
-        out = subprocess.check_output(["/usr/sbin/system_profiler", "SPBluetoothDataType"], text=True)
-        lines = out.split('\n')
-        mac = None
-        for i, line in enumerate(lines):
-            if dev_name in line:
-                for j in range(1, 6):
-                    if i+j < len(lines) and "Address:" in lines[i+j]:
-                        mac = lines[i+j].split("Address:")[1].strip()
-                        break
-                break
-        if mac:
-            print(f"[Bridge] Auto-connecting {dev_name} ({mac}) via blueutil...", file=sys.stderr)
-            blueutil_path = "/opt/homebrew/bin/blueutil"
-            if not os.path.exists(blueutil_path):
-                blueutil_path = "blueutil"
-            
-            # Increase timeout to 30s because Mac Bluetooth can be very slow when connecting multiple devices sequentially
-            # Killing blueutil before it finishes corrupts the blued daemon state!
-            try:
-                res = subprocess.run([blueutil_path, "--connect", mac], timeout=30, capture_output=True, text=True)
-                if res.returncode != 0:
-                    print(f"[Bridge] blueutil connect failed for {dev_name}: {res.stderr.strip()}", file=sys.stderr)
-            except subprocess.TimeoutExpired:
-                print(f"[Bridge] blueutil connect timeout for {dev_name}", file=sys.stderr)
-                
-            # Wait up to 5 seconds for the port to be created by macOS
-            for _ in range(25):
-                if os.path.exists(port_path):
-                    return True
-                time.sleep(0.2)
-                
-            print(f"[Bridge] Port {port_path} still missing after blueutil.", file=sys.stderr)
-            return False
-    except Exception as e:
-        print(f"[Bridge] force_mac_connection error for {dev_name}: {e}", file=sys.stderr)
-    return False
-
-def _reset_single_sensor(port_path):
-    """特定のセンサーのBluetooth接続を切断→再接続してRFCOMMチャネルをリセットする"""
-    import subprocess
-    blueutil_path = "/opt/homebrew/bin/blueutil"
-    if not os.path.exists(blueutil_path):
-        blueutil_path = "blueutil"
-    
-    dev_name = port_path.split('.')[-1]
-    mac = None
-    try:
-        out = subprocess.check_output(["/usr/sbin/system_profiler", "SPBluetoothDataType"], text=True)
-        lines = out.split('\n')
-        for i, line in enumerate(lines):
-            if dev_name in line:
-                for j in range(1, 6):
-                    if i+j < len(lines) and "Address:" in lines[i+j]:
-                        mac = lines[i+j].split("Address:")[1].strip()
-                        break
-                break
-    except Exception as e:
-        print(f"[Bridge] Failed to find MAC for {dev_name}: {e}", file=sys.stderr)
-        return
-        
-    if not mac:
-        print(f"[Bridge] No MAC address found for {dev_name}, skipping BT reset.", file=sys.stderr)
-        return
-        
-    print(f"[Bridge] Resetting Bluetooth connection for {dev_name} ({mac})...", file=sys.stderr)
-    try:
-        subprocess.run([blueutil_path, "--disconnect", mac], timeout=5, capture_output=True)
-        print(f"[Bridge] Disconnected {dev_name}", file=sys.stderr)
-    except Exception:
-        pass
-        
-    time.sleep(2)
-    
-    try:
-        print(f"[Bridge] Reconnecting {dev_name}...", file=sys.stderr)
-        res = subprocess.run([blueutil_path, "--connect", mac], timeout=30, capture_output=True, text=True)
-        if res.returncode == 0:
-            print(f"[Bridge] {dev_name} reconnected successfully.", file=sys.stderr)
-        else:
-            print(f"[Bridge] {dev_name} reconnect failed: {res.stderr.strip()}", file=sys.stderr)
-    except subprocess.TimeoutExpired:
-        print(f"[Bridge] {dev_name} reconnect timeout.", file=sys.stderr)
-
 def connection_manager(sensor_specs, serials, threads):
     unconnected = list(sensor_specs)
-    # 注意: ここで一括BTリセットを行わない。blueutil --connectはACLリンクのみ再構築し
-    # RFCOMMチャネル(シリアルポート)は再構築されないため、逆にポートを壊す。
-    # 既存のポートが存在するセンサーはそのまま使い、存在しないポートのみforce_mac_connectionで対処する。
     
     while is_running and unconnected:
         still_unconnected = []
@@ -354,23 +227,16 @@ def connection_manager(sensor_specs, serials, threads):
             if not is_running:
                 break
                 
-            if not os.path.exists(port):
-                print(f"[Bridge] Pre-connecting Sensor {sensor_id} on {port}...", file=sys.stderr)
-                force_mac_connection(port)
-                
             print(f"[Bridge] Opening Sensor {sensor_id} on {port}...", file=sys.stderr)
-            
             if not os.path.exists(port):
                 print(f"[Bridge] SKIPPED Sensor {sensor_id}: Port {port} does not exist.", file=sys.stderr)
                 still_unconnected.append((sensor_id, port))
                 continue
             
             try:
-                # タイムアウトを少し長めにしてRFCOMM確立を確実にする
-                # rtscts/dsrdtr を無効化しハードウェアフロー制御によるブロッキングを防止
-                ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0,
-                                    rtscts=False, dsrdtr=False)
-                time.sleep(1.5)
+                # pyserial が OS レベルで SPP 接続を確立する
+                ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0)
+                time.sleep(1.0) # ポートオープン後の安定化待ち
             except Exception as e:
                 print(f"[Bridge] Error opening port for Sensor {sensor_id}: {e}", file=sys.stderr)
                 still_unconnected.append((sensor_id, port))
@@ -384,23 +250,8 @@ def connection_manager(sensor_specs, serials, threads):
                 if init_sensor(ser):
                     init_success = True
                     break
-                print(f"[Bridge] Sensor {sensor_id} init attempt {attempt+1} failed. Retrying...", file=sys.stderr)
-                # 失敗時: シリアルポートを閉じてBTを個別にリセットし、再度開く
-                try:
-                    ser.close()
-                except Exception:
-                    pass
+                print(f"[Bridge] Sensor {sensor_id} init attempt {attempt+1} failed.", file=sys.stderr)
                 time.sleep(1)
-                # BT個別リセット: このセンサーだけdisconnect→reconnect
-                _reset_single_sensor(port)
-                time.sleep(2)
-                try:
-                    ser = serial.Serial(port, 115200, timeout=1.5, write_timeout=1.0,
-                                        rtscts=False, dsrdtr=False)
-                    time.sleep(1.5)
-                except Exception as e:
-                    print(f"[Bridge] Error reopening port for Sensor {sensor_id}: {e}", file=sys.stderr)
-                    break
                 
             if init_success:
                 print(f"[Bridge] Sensor {sensor_id} initialized successfully.", file=sys.stderr)
@@ -409,10 +260,10 @@ def connection_manager(sensor_specs, serials, threads):
                 t.start()
                 threads.append(t)
             else:
-                print(f"[Bridge] Sensor {sensor_id} init permanently failed. Will retry next loop.", file=sys.stderr)
+                print(f"[Bridge] Sensor {sensor_id} init permanently failed.", file=sys.stderr)
                 try:
                     ser.close()
-                except Exception:
+                except:
                     pass
                 still_unconnected.append((sensor_id, port))
                 
@@ -430,7 +281,6 @@ def main():
     global is_running
     parser = argparse.ArgumentParser()
     parser.add_argument('--sensors', nargs='+', help='List of id:port pairs')
-    parser.add_argument('--ports', nargs='+', help='(Legacy) List of serial ports')
     args = parser.parse_args()
 
     sensor_specs = []
@@ -439,24 +289,20 @@ def main():
             parts = spec.split(":", 1)
             if len(parts) == 2:
                 sensor_specs.append((int(parts[0]), parts[1]))
-    elif args.ports:
-        for i, port in enumerate(args.ports):
-            sensor_specs.append((i + 1, port))
     
     if not sensor_specs:
         print("[Bridge] No sensors specified.", file=sys.stderr)
         sys.exit(1)
+        
     threads = []
     serials = []
 
     cm_thread = threading.Thread(target=connection_manager, args=(sensor_specs, serials, threads), daemon=True)
     cm_thread.start()
 
-    # 接続管理とコマンド受信用ループ
-    last_battery_poll = time.time()
+    # コマンド受信用ループ
     try:
         while True:
-            # Check for stdin commands without blocking indefinitely
             rlist, _, _ = select.select([sys.stdin], [], [], 1.0)
             if rlist:
                 line = sys.stdin.readline()
@@ -472,15 +318,7 @@ def main():
                     print("[Bridge] Received STOP command. Broadcasting stop_sensor...", file=sys.stderr)
                     for sid, s in list(serials):
                         stop_sensor(s)
-
-            # バッテリーポーリング (約10秒間隔)
-            if time.time() - last_battery_poll > 10.0:
-                last_battery_poll = time.time()
-                for sid, s in list(serials):
-                    # 測定中であっても取得可能なら送る（不要なら条件分岐）
-                    # 0x3B = get battery voltage
-                    send_cmd(s, 0x3B, [], "get_battery")
-                    
+                        
     except KeyboardInterrupt:
         pass
 

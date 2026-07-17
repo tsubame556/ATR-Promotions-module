@@ -83,11 +83,17 @@ namespace InfantPostureApp
                 // TSND151のクォータニオン (右手系)
                 Quaternion rawQ = driver.Rotation;
 
-                // 【座標変換ロジック】
-                // 物理的な取り付け向き: 足から頭(+X), 左(+Y), 下から上(+Z)
-                // Unityワールド座標: 頭(+Z), 左(-X), 上(+Y)
-                // この対応関係から、右手系→左手系へのクォータニオン変換を行う
-                Quaternion unityQ = new Quaternion(rawQ.y, -rawQ.z, -rawQ.x, rawQ.w);
+                // ユーザー指定の厳密なルールに従ってマッピング
+                Quaternion unityQ = PostureAnalyzer.MapSensorRotation(targetSensorId, rawQ);
+
+                // アバターの空間（原点）に座標系（X:赤, Y:緑, Z:青）を表示する
+                if (targetTransforms.Length > 0 && targetTransforms[0] != null)
+                {
+                    Transform root = targetTransforms[0];
+                    Debug.DrawRay(root.position, root.right * 0.5f, Color.red);   // X軸
+                    Debug.DrawRay(root.position, root.up * 0.5f, Color.green);    // Y軸
+                    Debug.DrawRay(root.position, root.forward * 0.5f, Color.blue);// Z軸
+                }
 
                 // 追加のオフセットがあれば適用
                 Quaternion offsetQ = Quaternion.Euler(rotationOffset);

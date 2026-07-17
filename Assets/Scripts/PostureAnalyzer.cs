@@ -76,6 +76,34 @@ namespace InfantPostureApp
             ActivePairs.Add(pair);
         }
 
+        /// <summary>
+        /// ユーザー指定の厳密なルールに従って、センサの生クォータニオンをアバター座標系へマッピングする
+        /// </summary>
+        public static Quaternion MapSensorRotation(int sensorId, Quaternion rawQ)
+        {
+            Quaternion q;
+            if (sensorId == 1)
+            {
+                // X:X, Y:-Y, Z:-Z
+                q = new Quaternion(rawQ.x, -rawQ.y, -rawQ.z, rawQ.w);
+            }
+            else if (sensorId == 2)
+            {
+                // X:Z, Y:-Y, Z:X
+                q = new Quaternion(rawQ.z, -rawQ.y, rawQ.x, rawQ.w);
+            }
+            else if (sensorId == 3 || sensorId == 4)
+            {
+                // X:0, Y:-Y, Z:X
+                q = new Quaternion(0f, -rawQ.y, rawQ.x, rawQ.w);
+            }
+            else
+            {
+                q = new Quaternion(rawQ.x, rawQ.y, rawQ.z, rawQ.w);
+            }
+            return q.normalized;
+        }
+
         public void RemovePair(SensorPair pair)
         {
             if (ActivePairs.Contains(pair))
@@ -117,8 +145,12 @@ namespace InfantPostureApp
                 if (_latestRotations.TryGetValue(pair.ParentSensorId, out Quaternion qParent) &&
                     _latestRotations.TryGetValue(pair.ChildSensorId, out Quaternion qChild))
                 {
+                    // アバター座標系 (X=X, Y=Y, Z=Z) に変換してから相対角度を計算
+                    Quaternion mappedParent = new Quaternion(qParent.x, qParent.y, qParent.z, qParent.w);
+                    Quaternion mappedChild = new Quaternion(qChild.x, qChild.y, qChild.z, qChild.w);
+                    
                     // q_relative = q_parent^-1 * q_child
-                    Quaternion qRelative = Quaternion.Inverse(qParent) * qChild;
+                    Quaternion qRelative = Quaternion.Inverse(mappedParent) * mappedChild;
                     pair.RelativeRotation = qRelative;
                     pair.RelativeEulerAngles = NormalizeEuler(qRelative.eulerAngles);
 

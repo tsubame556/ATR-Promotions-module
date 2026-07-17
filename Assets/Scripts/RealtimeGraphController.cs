@@ -96,6 +96,10 @@ namespace InfantPostureApp
 
         private int MapToY(float angle)
         {
+            // Unityのオイラー角(0〜360)を-180〜180に正規化
+            while (angle > 180f) angle -= 360f;
+            while (angle < -180f) angle += 360f;
+
             // -180 〜 180 を 0 〜 GraphHeight に変換
             float normalized = (angle + 180f) / 360f;
             int y = Mathf.RoundToInt(normalized * GraphHeight);

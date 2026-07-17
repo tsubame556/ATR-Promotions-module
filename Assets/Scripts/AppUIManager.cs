@@ -127,6 +127,11 @@ namespace InfantPostureApp
 
         private void Start()
         {
+            if (graphController == null)
+            {
+                graphController = FindObjectOfType<RealtimeGraphController>();
+            }
+
             if (TSND151UdpManager.Instance == null)
             {
                 gameObject.AddComponent<TSND151UdpManager>();
@@ -448,11 +453,15 @@ namespace InfantPostureApp
                 if (driver != null && driver.IsConnected)
                 {
                     hasConnected = true;
-                    var e = driver.Rotation.eulerAngles;
+                    // ユーザー指定の厳密なルールに従ってアバター座標系へマッピング
+                    Quaternion rawQ = driver.Rotation;
+                    Quaternion unityQ = PostureAnalyzer.MapSensorRotation(driver.sensorId, rawQ);
+                    
+                    var e = unityQ.eulerAngles;
                     float rx = e.x > 180 ? e.x - 360 : e.x;
                     float ry = e.y > 180 ? e.y - 360 : e.y;
                     float rz = e.z > 180 ? e.z - 360 : e.z;
-                    sb.AppendLine($"Sensor {driver.sensorId}: R={rx:F1}° P={ry:F1}° Y={rz:F1}°");
+                    sb.AppendLine($"Sensor {driver.sensorId}: X(Pitch)={rx:F1}° Y(Yaw)={ry:F1}° Z(Roll)={rz:F1}°");
                     sb.AppendLine($"  Acc: {driver.Acceleration.x:F2}, {driver.Acceleration.y:F2}, {driver.Acceleration.z:F2}");
                     sb.AppendLine($"  Gyr: {driver.Gyroscope.x:F1}, {driver.Gyroscope.y:F1}, {driver.Gyroscope.z:F1}");
                 }

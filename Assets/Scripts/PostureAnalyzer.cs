@@ -81,26 +81,8 @@ namespace InfantPostureApp
         /// </summary>
         public static Quaternion MapSensorRotation(int sensorId, Quaternion rawQ)
         {
-            Quaternion q;
-            if (sensorId == 1)
-            {
-                // X:X, Y:-Y, Z:-Z
-                q = new Quaternion(rawQ.x, -rawQ.y, -rawQ.z, rawQ.w);
-            }
-            else if (sensorId == 2)
-            {
-                // X:Z, Y:-Y, Z:X
-                q = new Quaternion(rawQ.z, -rawQ.y, rawQ.x, rawQ.w);
-            }
-            else if (sensorId == 3 || sensorId == 4)
-            {
-                // X:0, Y:-Y, Z:X
-                q = new Quaternion(0f, -rawQ.y, rawQ.x, rawQ.w);
-            }
-            else
-            {
-                q = new Quaternion(rawQ.x, rawQ.y, rawQ.z, rawQ.w);
-            }
+            // 全てのセンサーで アバター(X,Y,Z) = センサ(-Y,X,Z) に設定
+            Quaternion q = new Quaternion(-rawQ.y, rawQ.x, rawQ.z, rawQ.w);
             return q.normalized;
         }
 

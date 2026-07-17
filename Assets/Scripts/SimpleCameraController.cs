@@ -7,64 +7,124 @@ namespace InfantPostureApp
     {
         public float sensitivityX = 0.3f;
         public float sensitivityY = 0.3f;
-        public float zoomSensitivity = 0.01f;
-        public float moveSpeed = 0.5f;
-
-        private float rotationX = 0f;
-        private float rotationY = 0f;
+        public float zoomSensitivity = 0.005f;
+        
+        private float rotationX = 45f;
+        private float rotationY = 20f;
+        private float distance = 2.5f;
+        
+        private Vector3 targetCenter = new Vector3(0, 0.8f, 0);
+        private bool _isDragging = false;
 
         private void Start()
         {
-            // 初期視点を「斜め横前」に設定
-            transform.position = new Vector3(1.5f, 1.0f, 1.5f);
-            transform.LookAt(new Vector3(0, 0.8f, 0));
-
-            Vector3 angles = transform.eulerAngles;
-            rotationX = angles.y;
-            rotationY = angles.x;
+            Debug.Log("[SimpleCameraController] Start() が呼ばれました。カメラ制御を開始します。");
+            
+            // アバター（Animatorを持つオブジェクト）を検索して中心を自動設定
+            var animator = Object.FindFirstObjectByType<Animator>();
+            if (animator != null)
+            {
+                targetCenter = animator.transform.position + new Vector3(0, 0.8f, 0);
+                Debug.Log($"[SimpleCameraController] Start() でアバターを発見しました。中心位置: {targetCenter}");
+            }
+            else
+            {
+                Debug.LogWarning("[SimpleCameraController] Start() でアバター(Animator)が見つかりませんでした。デフォルト位置 (0, 0.8, 0) を中心にします。");
+            }
+            
+            UpdateCameraTransform();
         }
+
+        private Vector2 _lastMousePos;
+        private bool _wasPressedLastFrame;
 
         private void LateUpdate()
         {
             if (Mouse.current == null) return;
 
-            // 右クリックで視点回転（Look Around）
-            if (Mouse.current.rightButton.isPressed)
+            bool isPressed = Mouse.current.rightButton.isPressed || Mouse.current.leftButton.isPressed;
+            Vector2 currentMousePos = Mouse.current.position.ReadValue();
+
+            // 押された瞬間に前回の位置をリセット
+            if (isPressed && !_wasPressedLastFrame)
             {
-                rotationX += Mouse.current.delta.x.ReadValue() * sensitivityX;
-                rotationY -= Mouse.current.delta.y.ReadValue() * sensitivityY;
-                rotationY = Mathf.Clamp(rotationY, -89f, 89f);
-                transform.localRotation = Quaternion.Euler(rotationY, rotationX, 0);
+                _lastMousePos = currentMousePos;
             }
 
-            // マウスホイールで前進・後退（ズーム）
+            // 入力の取得（deltaを使わず、座標の差分を自前で計算する：Unityのバグ対策）
+            if (isPressed)
+            {
+                float dx = currentMousePos.x - _lastMousePos.x;
+                float dy = currentMousePos.y - _lastMousePos.y;
+
+                // わずかでも動いたら回転
+                if (Mathf.Abs(dx) > 0.1f || Mathf.Abs(dy) > 0.1f)
+                {
+                    rotationX += dx * sensitivityX;
+                    rotationY -= dy * sensitivityY;
+                    rotationY = Mathf.Clamp(rotationY, -89f, 89f);
+                }
+            }
+
+            _lastMousePos = currentMousePos;
+            _wasPressedLastFrame = isPressed;
+
+            // マウスホイールでのズーム
             float scroll = Mouse.current.scroll.y.ReadValue();
             if (Mathf.Abs(scroll) > 0.01f)
             {
-                transform.Translate(Vector3.forward * scroll * zoomSensitivity, Space.Self);
+                distance -= scroll * zoomSensitivity;
+                distance = Mathf.Clamp(distance, 0.1f, 50f);
             }
 
-            // 中クリック（ホイール押し込み）または左クリック+Shiftで平行移動（Pan）
-            bool shiftPressed = Keyboard.current != null && (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
-            if (Mouse.current.middleButton.isPressed || (Mouse.current.leftButton.isPressed && shiftPressed))
-            {
-                float moveX = -Mouse.current.delta.x.ReadValue() * moveSpeed * Time.deltaTime;
-                float moveY = -Mouse.current.delta.y.ReadValue() * moveSpeed * Time.deltaTime;
-                transform.Translate(new Vector3(moveX, moveY, 0), Space.Self);
-            }
+            // 常にアバター中心を向くように位置と回転を更新
+            UpdateCameraTransform();
         }
 
-        // ゲーム開始時にメインカメラに自動でアタッチする処理
+        private void UpdateCameraTransform()
+        {
+            // 目標地点が原点のままの場合、念のためアバターを再検索
+            if (targetCenter == new Vector3(0, 0.8f, 0) && Time.frameCount % 60 == 0)
+            {
+                var animator = Object.FindFirstObjectByType<Animator>();
+                if (animator != null)
+                {
+                    targetCenter = animator.transform.position + new Vector3(0, 0.8f, 0);
+                    Debug.Log($"[SimpleCameraController] アバターを発見しました。中心位置を更新: {targetCenter}");
+                }
+            }
+
+            Quaternion rotation = Quaternion.Euler(rotationY, rotationX, 0);
+            Vector3 position = targetCenter + rotation * new Vector3(0, 0, -distance);
+
+            transform.rotation = rotation;
+            transform.position = position;
+        }
+
+        // ゲーム開始時にカメラに自動でアタッチする処理
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void AutoAttachToCamera()
         {
-            if (Camera.main != null)
+            Camera[] allCameras = Object.FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            bool attached = false;
+
+            foreach (var cam in allCameras)
             {
-                if (Camera.main.GetComponent<SimpleCameraController>() == null)
+                // UI用等のOrthographic（平行投影）カメラにはアタッチしない
+                if (!cam.orthographic)
                 {
-                    Camera.main.gameObject.AddComponent<SimpleCameraController>();
-                    Debug.Log("[SimpleCameraController] メインカメラに視点操作スクリプト(Input System版)を自動追加しました。");
+                    if (cam.GetComponent<SimpleCameraController>() == null)
+                    {
+                        cam.gameObject.AddComponent<SimpleCameraController>();
+                        Debug.Log($"[SimpleCameraController] 3D用カメラ ({cam.gameObject.name}) にオービットスクリプトを追加しました！");
+                        attached = true;
+                    }
                 }
+            }
+
+            if (!attached)
+            {
+                Debug.LogError("[SimpleCameraController] シーン内に3D用のカメラ(Perspective)が見つかりません！");
             }
         }
     }

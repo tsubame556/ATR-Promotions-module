@@ -56,8 +56,8 @@ namespace InfantPostureApp
             }
             string sensorArgsStr = string.Join(" ", sensorArgs);
             
-            string scriptPath = Application.dataPath + "/Python/tsnd_bridge.py";
-            string venvPythonPath = Application.dataPath + "/Python/venv/bin/python";
+            string scriptPath = System.IO.Path.GetFullPath(Application.dataPath + "/../PythonBackend/tsnd_bridge.py");
+            string venvPythonPath = System.IO.Path.GetFullPath(Application.dataPath + "/../PythonBackend/venv/bin/python");
             
             try
             {
